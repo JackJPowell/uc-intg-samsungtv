@@ -1,0 +1,43 @@
+{
+	"driver_id": "samsung_tv_driver",
+	"version": "0.1.0",
+	"min_core_api": "0.20.0",
+	"name": { "en": "Samsung TV" },
+	"icon": "uc:display",
+	"description": {
+		"en": "Control your Samsung TV with Remote Two/3.",
+		"de": "Steuere Samsung TV mit Remote Two/3.",
+		"fr": "Contrôler votre Samsung TV avec Remote Two/3."
+	},
+	"developer": {
+		"name": "Jack Powell",
+		"email": "jackjpowell@gmail.com",
+		"url": "https://github.com/jackjpowell"
+	},
+	"home_page": "https://github.com/JackJPowell/uc-intg-samsung-tv",
+	"setup_data_schema": {
+		"title": {
+			"en": "Integration setup",
+			"de": "Integrationssetup",
+			"fr": "Configuration de l'intégration"
+		},
+		"settings": [
+			{
+				"id": "info",
+				"label": {
+					"en": "Setup process",
+					"de": "Setup Fortschritt",
+					"fr": "Progression de la configuration"
+				},
+				"field": {
+					"label": {
+						"value": {
+							"en": "This integration will allow you to control Samsung TVs on your network."
+						}
+					}
+				}
+			}
+		]
+	},
+	"release_date": "2025-05-10"
+}
