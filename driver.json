@@ -1,5 +1,5 @@
 {
-	"driver_id": "samsung_tv_driver",
+	"driver_id": "samsungtv_driver",
 	"version": "0.1.0",
 	"min_core_api": "0.20.0",
 	"name": { "en": "Samsung TV" },
@@ -14,7 +14,7 @@
 		"email": "jackjpowell@gmail.com",
 		"url": "https://github.com/jackjpowell"
 	},
-	"home_page": "https://github.com/JackJPowell/uc-intg-samsung-tv",
+	"home_page": "https://github.com/JackJPowell/uc-intg-samsungtv",
 	"setup_data_schema": {
 		"title": {
 			"en": "Integration setup",
@@ -39,5 +39,5 @@
 			}
 		]
 	},
-	"release_date": "2025-05-10"
+	"release_date": "2025-05-16"
 }

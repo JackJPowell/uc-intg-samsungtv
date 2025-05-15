@@ -1,5 +1,5 @@
 [project]
-name = "uc-intg-samsung-tv"
+name = "uc-intg-samsungtv"
 version = "0.1.0"
 description = "An Unfolded Circle integration for Samsung TV"
 readme = "README.md"
