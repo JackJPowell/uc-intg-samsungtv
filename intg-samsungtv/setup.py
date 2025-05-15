@@ -12,9 +12,6 @@ from enum import IntEnum
 import config
 from config import SamsungDevice
 from samsungtvws import SamsungTVWS
-from samsungtvws.async_remote import SamsungTVWSAsyncRemote
-from samsungtvws.remote import ChannelEmitCommand
-from tv import handle_remote_event
 from ucapi import (
     AbortDriverSetup,
     DriverSetupRequest,
@@ -82,8 +79,8 @@ async def driver_setup_handler(
     :param msg: the setup driver request object, either DriverSetupRequest or UserDataResponse
     :return: the setup action on how to continue
     """
-    global _setup_step
-    global _cfg_add_device
+    global _setup_step # pylint: disable=global-statement
+    global _cfg_add_device # pylint: disable=global-statement
 
     if isinstance(msg, DriverSetupRequest):
         _setup_step = SetupSteps.INIT
@@ -115,14 +112,15 @@ async def _handle_driver_setup(
 
     Initiated by Remote Two to set up the driver. The reconfigure flag determines the setup flow:
 
-    - Reconfigure is True: show the configured devices and ask user what action to perform (add, delete, reset).
+    - Reconfigure is True: 
+        show the configured devices and ask user what action to perform (add, delete, reset).
     - Reconfigure is False: clear the existing configuration and show device discovery screen.
       Ask user to enter ip-address for manual configuration, otherwise auto-discovery is used.
 
     :param msg: driver setup request data, only `reconfigure` flag is of interest.
     :return: the setup action on how to continue
     """
-    global _setup_step
+    global _setup_step # pylint: disable=global-statement
 
     reconfigure = msg.reconfigure
     _LOG.debug("Starting driver setup, reconfigure=%s", reconfigure)
@@ -232,8 +230,8 @@ async def _handle_configuration_mode(
     :param msg: user input data from the configuration mode screen.
     :return: the setup action on how to continue
     """
-    global _setup_step
-    global _cfg_add_device
+    global _setup_step # pylint: disable=global-statement
+    global _cfg_add_device # pylint: disable=global-statement
 
     action = msg.input_values["action"]
 
@@ -275,7 +273,6 @@ async def _handle_discovery(msg: UserDataResponse) -> RequestUserInput | SetupEr
     :return: the setup action on how to continue
     """
 
-    token = ""
     ip = msg.input_values["ip"]
     if ip is not None and ip != "":
         _LOG.debug("Connecting to Samsung TV at %s", ip)
@@ -286,7 +283,7 @@ async def _handle_discovery(msg: UserDataResponse) -> RequestUserInput | SetupEr
             timeout=30,
             name="Unfolded Circle Remote",
         )
-        tv.shortcuts().enter()
+
         info = tv.rest_device_info()
 
         _LOG.info("Samsung TV info: %s", info)

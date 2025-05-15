@@ -1,26 +1,26 @@
 """
 This module implements the Samsung TV communication of the Remote Two integration driver.
 
-:copyright: (c) 2023-2024 by Unfolded Circle ApS.
-:license: Mozilla Public License Version 2.0, see LICENSE for more details.
 """
 
 import asyncio
+import contextlib
 import logging
 from asyncio import AbstractEventLoop
-from enum import Enum, IntEnum
-from typing import ParamSpec, TypeVar, cast, Any
 from datetime import datetime, timedelta
+from enum import Enum, IntEnum
+from typing import Any, ParamSpec, TypeVar, cast
+
+import aiohttp
 import wakeonlan
 from config import SamsungDevice
 from pyee.asyncio import AsyncIOEventEmitter
 from samsungtvws import SamsungTVWS
-from samsungtvws.remote import ChannelEmitCommand
 from samsungtvws.async_remote import SamsungTVWSAsyncRemote
-from samsungtvws.event import (
-    ED_INSTALLED_APP_EVENT,
-    parse_installed_app,
-)
+from samsungtvws.async_rest import SamsungTVAsyncRest
+from samsungtvws.event import ED_INSTALLED_APP_EVENT, parse_installed_app
+from samsungtvws.exceptions import HttpApiError
+from samsungtvws.remote import ChannelEmitCommand, SendRemoteKey
 
 _LOG = logging.getLogger(__name__)
 
@@ -137,7 +137,6 @@ class SamsungTv:
             return
 
         _LOG.debug("[%s] Connecting to device", self.log_id)
-        #self.check_power_status()
         self._start_connect_loop()
 
     def _start_connect_loop(self) -> None:
@@ -170,8 +169,7 @@ class SamsungTv:
         self._connection_attempts = 0
 
         await self._start_polling()
-
-        self._loop.create_task(self._update_app_list())
+        await self._update_app_list()
 
         self.events.emit(EVENTS.CONNECTED, self._device.identifier)
         _LOG.debug("[%s] Connected", self.log_id)
@@ -182,24 +180,30 @@ class SamsungTv:
         except asyncio.CancelledError:
             pass
         except Exception as err:  # pylint: disable=broad-exception-caught
-            _LOG.warning("[%s] Could not connect: %s", self.log_id, err)
+            _LOG.error("[%s] Could not connect: %s", self.log_id, err)
             self._samsungtv = None
+        finally:
+            _LOG.debug("[%s] Connect once finished", self.log_id)
 
     async def _connect(self) -> None:
         """Connect to the device."""
         _LOG.debug("[%s] Connecting to device", self.log_id)
-        self._samsungtv = SamsungTVWS(
-            self._device.address,
+        self._samsungtv = SamsungTVWSAsyncRemote(
+            host=self._device.address,
             port=8002,
-            token=self._device.token,
             key_press_delay=0.1,
-            name="Unfolded Circle Remote",
+            token=self._device.token,
         )
 
+        try:
+            print("Connection to the TV established.")
+            await self._samsungtv.start_listening(handle_remote_event)
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            print(f"An error occurred while connecting to the TV (Start Listening): {e}")
+
     async def disconnect(self) -> None:
-        """Disconnect from ATV."""
+        """Disconnect from Samsung."""
         _LOG.debug("[%s] Disconnecting from device", self.log_id)
-        self._is_on = False
         await self._stop_polling()
 
         try:
@@ -214,15 +218,6 @@ class SamsungTv:
             self._connect_task = None
 
     async def _start_polling(self) -> None:
-        # if self._samsungtv is None:
-        #     _LOG.warning(
-        #         "[%s] Polling not started, Samsung object is None", self.log_id
-        #     )
-        #     self.events.emit(
-        #         EVENTS.ERROR, "Polling not started, Samsung object is None"
-        #     )
-        #     return
-
         self._polling = self._loop.create_task(self._poll_worker())
         _LOG.debug("[%s] Polling started", self.log_id)
 
@@ -253,10 +248,10 @@ class SamsungTv:
 
         try:
             update["sourceList"] = ["TV", "HDMI"]
-            if self.is_on:
-                #app_list = self._samsungtv.app_list()
-                #if not app_list:
-                app_list = self._get_app_list_via_remote()
+            if self._samsungtv.is_alive():
+                app_list = await self._samsungtv.app_list()
+                if not app_list:
+                    app_list = await self._get_app_list_via_remote()
             if not app_list:
                 _LOG.error("[%s] Unable to retrieve app list.", self.log_id)
                 return
@@ -264,35 +259,17 @@ class SamsungTv:
                 self._app_list[app.get("name")] = app.get("appId")
                 update["sourceList"].append(app.get("name"))
         except Exception:  # pylint: disable=broad-exception-caught
-            _LOG.warning("[%s] App list: protocol error", self.log_id)
+            _LOG.exception("[%s] App list: protocol error", self.log_id)
 
         self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
 
     async def _get_app_list_via_remote(self) -> dict[str, str]:
-        if not self.is_on:
+        if not self.is_on or not self._samsungtv:
             return {}
-        remote = SamsungTVWSAsyncRemote(
-            host=self._device.address,
-            port=8002,
-            timeout=5,
-            token=self._device.token,
-        )
 
-        try:
-            # Start listening to establish a connection
-            await remote.start_listening(handle_remote_event)
-            print("Connection to the TV established.")
+        return await self._samsungtv.send_commands(ChannelEmitCommand.get_installed_app())
 
-            # Example: Send a key command to the TV (e.g., volume up)
-            return await remote.send_commands([ChannelEmitCommand.get_installed_app()])
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            print(f"An error occurred: {e}")
-        finally:
-            # Disconnect when done
-            await remote.close()
-            print("Disconnected from the TV.")
-
-    def launch_app(
+    async def launch_app(
         self, app_id: str | None = None, app_name: str | None = None
     ) -> None:
         """Launch an app on the TV."""
@@ -301,20 +278,31 @@ class SamsungTv:
             return
         if app_name:
             if app_name == "TV":
-                self._samsungtv.send_key("KEY_TV")
+                await self.send_key("KEY_TV")
+                return
             elif app_name == "HDMI":
-                self._samsungtv.send_key("KEY_HDMI")
+                await self.send_key("KEY_HDMI")
+                return
             else:
                 app_id = self._app_list[app_name]
 
-        self._samsungtv.run_app(app_id)
+        async with aiohttp.ClientSession() as session:
+            with contextlib.suppress(HttpApiError):
+                rest_api = SamsungTVAsyncRest(
+                    host=self._device.address, port=8002, session=session
+                )
+                await rest_api.rest_app_run(app_id)
+
+    async def send_key(self, key: str) -> None:
+        """Send a key to the TV."""
+        await self._samsungtv.send_command(SendRemoteKey.click(key))
 
     async def _poll_worker(self) -> None:
         await asyncio.sleep(1)
         update = {}
 
         previous_state = self.is_on
-        self._samsungtv.app_list()
+        self.check_power_status()
         if previous_state != self.is_on:
             if self.is_on:
                 update["state"] = PowerState.ON
@@ -345,13 +333,14 @@ class SamsungTv:
             if not self._is_on:
                 _LOG.warning("[%s] Unable to wake TV", self.log_id)
                 return
-            #await self.connect()
+            await self.connect()
+            await self._update_app_list()
             update["state"] = PowerState.ON
         else:
-            self._samsungtv.shortcuts().power()
+            await self.send_key("KEY_POWER")
             self._end_of_power_off = datetime.utcnow() + timedelta(seconds=15)
             self._is_on = False
-            self._samsungtv.close()
+            await self._samsungtv.close()
             self._samsungtv = None
             update["state"] = PowerState.OFF
 
@@ -365,7 +354,6 @@ class SamsungTv:
             port=8002,
             token=self._device.token,
             timeout=1,
-            key_press_delay=0.1,
             name="Unfolded Circle Remote",
         )
         try:

@@ -25,22 +25,20 @@ _configured_devices: dict[str, tv.SamsungTv] = {}
 
 features = [
     media_player.Features.ON_OFF,
-    media_player.Features.VOLUME,
     media_player.Features.VOLUME_UP_DOWN,
     media_player.Features.MUTE_TOGGLE,
-    media_player.Features.PLAY_PAUSE,
-    media_player.Features.STOP,
     media_player.Features.HOME,
-    media_player.Features.CHANNEL_SWITCHER,
     media_player.Features.DPAD,
     media_player.Features.SELECT_SOURCE,
     media_player.Features.MENU,
-    media_player.Features.REWIND,
-    media_player.Features.FAST_FORWARD,
+    media_player.Features.NUMPAD,
+    media_player.Features.CHANNEL_SWITCHER,
 ]
 
 
 class SamsungMediaPlayer(MediaPlayer):
+    """Representation of a Samsung MediaPlayer entity."""
+
     def __init__(self, config_device: SamsungDevice, device: tv.SamsungDevice):
         """Initialize the class."""
         self._device: tv.SamsungDevice = device
@@ -86,7 +84,7 @@ class SamsungMediaPlayer(MediaPlayer):
             "Got %s command request: %s %s", entity.id, cmd_id, params if params else ""
         )
 
-        # If the entity is OFF (device is in standby), we turn it on regardless of the actual command
+        # If the entity is OFF (device is in standby), we turn it on regardless of the command
         # if self._device.is_on is None or self._device.is_on is False:
         #     _LOG.debug("Device not connected, reconnect")
         #     await self._device._samsungtv.shortcuts().power()
@@ -95,7 +93,7 @@ class SamsungMediaPlayer(MediaPlayer):
         # if self._device.is_on is False:
         #     return ucapi.StatusCodes.SERVICE_UNAVAILABLE
 
-        res = ucapi.StatusCodes.BAD_REQUEST
+        # res = ucapi.StatusCodes.BAD_REQUEST
 
         try:
             match cmd_id:
@@ -105,97 +103,77 @@ class SamsungMediaPlayer(MediaPlayer):
                     await self._device.toggle_power(False)
                 case media_player.Commands.TOGGLE:
                     await self._device.toggle_power()
-                # case media_player.Commands.PLAY_PAUSE:
-                #     self._device._samsungtv.shortcuts().play_pause()
-                # case media_player.Commands.STOP:
-                #     await self._device.stop()
-                # case media_player.Commands.NEXT:
-                #     await self._device.next()
-                # case media_player.Commands.PREVIOUS:
-                #     await self._device.previous()
-                # case media_player.Commands.REWIND:
-                #     await self._device.rewind()
-                # case media_player.Commands.FAST_FORWARD:
-                #     await self._device.fast_forward()
                 case media_player.Commands.VOLUME_UP:
-                    self._device._samsungtv.shortcuts().volume_up()
+                    await self._device.send_key("KEY_VOLUP")
                 case media_player.Commands.VOLUME_DOWN:
-                    self._device._samsungtv.shortcuts().volume_down()
+                    await self._device.send_key("KEY_VOLDOWN")
                 # case media_player.Commands.VOLUME:
                 #     self._device.volume_set(params.get("volume"))
                 case media_player.Commands.MUTE_TOGGLE:
-                    self._device._samsungtv.shortcuts().mute()
+                    await self._device.send_key("KEY_MUTE")
                 case media_player.Commands.CHANNEL_DOWN:
-                    self._device._samsungtv.shortcuts().channel_down()
+                    await self._device.send_key("KEY_CHDOWN")
                 case media_player.Commands.CHANNEL_UP:
-                    self._device._samsungtv.shortcuts().channel_up()
+                    await self._device.send_key("KEY_CHDOWN")
                 case media_player.Commands.CURSOR_UP:
-                    self._device._samsungtv.shortcuts().up()
+                    await self._device.send_key("KEY_UP")
                 case media_player.Commands.CURSOR_DOWN:
-                    self._device._samsungtv.shortcuts().down()
+                    await self._device.send_key("KEY_DOWN")
                 case media_player.Commands.CURSOR_LEFT:
-                    self._device._samsungtv.shortcuts().left()
+                    await self._device.send_key("KEY_LEFT")
                 case media_player.Commands.CURSOR_RIGHT:
-                    self._device._samsungtv.shortcuts().right()
+                    await self._device.send_key("KEY_RIGHT")
                 case media_player.Commands.CURSOR_ENTER:
-                    self._device._samsungtv.shortcuts().enter()
+                    await self._device.send_key("KEY_ENTER")
                 case media_player.Commands.DIGIT_0:
-                    self._device._samsungtv.shortcuts().digit("0")
+                    await self._device.send_key("KEY_0")
                 case media_player.Commands.DIGIT_1:
-                    self._device._samsungtv.shortcuts().digit("1")
+                    await self._device.send_key("KEY_1")
                 case media_player.Commands.DIGIT_2:
-                    self._device._samsungtv.shortcuts().digit("2")
+                    await self._device.send_key("KEY_2")
                 case media_player.Commands.DIGIT_3:
-                    self._device._samsungtv.shortcuts().digit("3")
+                    await self._device.send_key("KEY_3")
                 case media_player.Commands.DIGIT_4:
-                    self._device._samsungtv.shortcuts().digit("4")
+                    await self._device.send_key("KEY_4")
                 case media_player.Commands.DIGIT_5:
-                    self._device._samsungtv.shortcuts().digit("5")
+                    await self._device.send_key("KEY_5")
                 case media_player.Commands.DIGIT_6:
-                    self._device._samsungtv.shortcuts().digit("6")
+                    await self._device.send_key("KEY_6")
                 case media_player.Commands.DIGIT_7:
-                    self._device._samsungtv.shortcuts().digit("7")
+                    await self._device.send_key("KEY_7")
                 case media_player.Commands.DIGIT_8:
-                    self._device._samsungtv.shortcuts().digit("8")
+                    await self._device.send_key("KEY_8")
                 case media_player.Commands.DIGIT_9:
-                    self._device._samsungtv.shortcuts().digit("9")
+                    await self._device.send_key("KEY_9")
                 case media_player.Commands.FUNCTION_RED:
-                    self._device._samsungtv.shortcuts().red()
+                    await self._device.send_key("KEY_RED")
                 case media_player.Commands.FUNCTION_GREEN:
-                    self._device._samsungtv.shortcuts().green()
+                    await self._device.send_key("KEY_GREEN")
                 case media_player.Commands.FUNCTION_YELLOW:
-                    self._device._samsungtv.shortcuts().yellow()
+                    await self._device.send_key("KEY_YELLOW")
                 case media_player.Commands.FUNCTION_BLUE:
-                    self._device._samsungtv.shortcuts().blue()
+                    await self._device.send_key("KEY_BLUE")
                 case media_player.Commands.HOME:
-                    self._device._samsungtv.shortcuts().home()
+                    await self._device.send_key("KEY_HOME")
                 case media_player.Commands.MENU:
-                    self._device._samsungtv.shortcuts().menu()
+                    await self._device.send_key("KEY_MENU")
                 case media_player.Commands.INFO:
-                    self._device._samsungtv.shortcuts().info()
+                    await self._device.send_key("KEY_INFO")
                 case media_player.Commands.GUIDE:
-                    self._device._samsungtv.shortcuts().guide()
+                    await self._device.send_key("KEY_GUIDE")
                 case media_player.Commands.BACK:
-                    self._device._samsungtv.shortcuts().back()
+                    await self._device.send_key("KEY_RETURN")
                 case media_player.Commands.SELECT_SOURCE:
-                    self._device.launch_app(app_name=params.get("source"))
-                # case media_player.Commands.RECORD:
-                # self._device._samsungtv.shortcuts().record()
-                # case media_player.Commands.SUBTITLE:
-                # res = await self._device.subtitle()
+                    await self._device.launch_app(app_name=params.get("source"))
                 case media_player.Commands.SETTINGS:
-                    self._device._samsungtv.shortcuts().tools()
+                    await self._device.send_key("KEY_TOOLS")
                 # --- simple commands ---
                 case SimpleCommands.EXIT:
-                    self._device._samsungtv.shortcuts().menu()
+                    await self._device.send_key("KEY_MENU")
                 case SimpleCommands.CH_LIST:
-                    self._device._samsungtv.shortcuts().channel_list()
-                # case SimpleCommands.SLEEP:
-                # res = await self._device.sleep()
-        except Exception as ex:
+                    await self._device.send_key("KEY_CH_LIST")
+        except Exception as ex:  # pylint: disable=broad-except
             _LOG.error("Error executing command %s: %s", cmd_id, ex)
-            await self._device.disconnect()
-            await self._device.connect()
             return ucapi.StatusCodes.TIMEOUT
         return ucapi.StatusCodes.OK
 

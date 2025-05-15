@@ -28,8 +28,6 @@ def device_from_entity_id(entity_id: str) -> str | None:
     """
     Return the id prefix of an entity_id.
 
-    The prefix is the part before the first dot in the name and refers to the plex device identifier.
-
     :param entity_id: the entity identifier
     :return: the device prefix, or None if entity_id doesn't contain a dot
     """
@@ -68,7 +66,7 @@ class Devices:
         """
         Create a configuration instance for the given configuration path.
 
-        :param data_path: configuration path for the configuration file and client device certificates.
+        :param data_path: configuration path for the configuration file and client certificates.
         """
         self._data_path: str = data_path
         self._cfg_file_path: str = os.path.join(data_path, _CFG_FILENAME)
@@ -175,7 +173,8 @@ class Devices:
             with open(self._cfg_file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             for item in data:
-                # not using SamsungDevice(**item) to be able to migrate old configuration files with missing attributes
+                # not using SamsungDevice(**item) to be able to migrate
+                # old configuration files with missing attributes
                 device = SamsungDevice(
                     item.get("identifier"),
                     item.get("name", ""),

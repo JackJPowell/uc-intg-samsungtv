@@ -243,7 +243,7 @@ def _add_configured_device(device_config: SamsungDevice, connect: bool = True) -
         device.events.on(tv.EVENTS.UPDATE, on_device_update)
 
         _configured_devices[device.identifier] = device
-        device.check_power_status()
+        # device.check_power_status()
 
     async def start_connection():
         await device.connect()
