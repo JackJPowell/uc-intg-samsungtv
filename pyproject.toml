@@ -5,9 +5,9 @@ description = "An Unfolded Circle integration for Samsung TV"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "async-timeout>=5.0.1",
     "pyee~=12.0.0",
     "samsungtvws==2.7.2",
     "ucapi==0.3.1",
     "wakeonlan>=3.1.0",
+    "aiohttp>=3.0.0,<4.0.0",
 ]
