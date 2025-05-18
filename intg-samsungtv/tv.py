@@ -73,6 +73,7 @@ class SamsungTv:
         self._app_list: dict[str, str] = {}
         self._volume_level: float = 0.0
         self._end_of_power_off: datetime | None = None
+        self.first_attempt: bool = True
 
     @property
     def device_config(self) -> SamsungDevice:
@@ -109,7 +110,9 @@ class SamsungTv:
     @property
     def state(self) -> PowerState | None:
         """Return the device state."""
-        return self._state
+        if self.is_on:
+            return PowerState.ON
+        return PowerState.OFF
 
     @property
     def power_off_in_progress(self) -> bool:
@@ -189,6 +192,7 @@ class SamsungTv:
 
         await self._start_polling()
         await self._update_app_list()
+        self.check_power_status()
 
         self.events.emit(EVENTS.CONNECTED, self._device.identifier)
         _LOG.debug("[%s] Connected", self.log_id)
