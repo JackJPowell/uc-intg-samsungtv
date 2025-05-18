@@ -149,29 +149,14 @@ class SamsungTv:
             self._connect_task = asyncio.create_task(self._connect_loop())
         else:
             _LOG.debug(
-                "[%s] Not starting connect loop (Samsung TV: %s, isOn: %s)",
+                "[%s] Not starting connect loop (Samsung TV: %s, ConnectTask: %s)",
                 self.log_id,
                 self._samsungtv is None,
-                self._is_on,
+                self._connect_task is not None,
             )
 
     async def _connect_loop(self) -> None:
         _LOG.debug("[%s] Starting connect loop", self.log_id)
-        # is_connected = False
-
-        # if self._samsungtv is not None:
-        #     if self._samsungtv.is_alive():
-        #         is_connected = True
-        #         _LOG.debug("[%s] Already connected", self.log_id)
-
-        # while not is_connected:
-        #     if self._samsungtv is not None:
-        #         if self._samsungtv.is_alive():
-        #             is_connected = True
-        #             _LOG.debug("[%s] Already connected", self.log_id)
-        #             break
-        #     await self.close()
-        #     await self._connect_once()
 
         while self._samsungtv is None:
             await self._connect_once()
@@ -188,13 +173,6 @@ class SamsungTv:
 
         # Reset the backoff counter
         self._connection_attempts = 0
-
-        for i in range(6):
-            _LOG.debug("[%s] Waiting for connection: (%s)", self.log_id, i)
-            self.check_power_status()            
-            if self._is_on:
-                break
-            await asyncio.sleep(3)
 
         await self._start_polling()
         await self._update_app_list()
@@ -442,22 +420,6 @@ class SamsungTv:
             _LOG.debug("[%s] Device is not alive. _samsungtv is None", self.log_id)
             self._is_on = False
             update["state"] = PowerState.OFF
-
-        # tv = SamsungTVWS(
-        #     self._device.address,
-        #     port=8002,
-        #     token=self._device.token,
-        #     timeout=1,
-        #     name="Unfolded Circle Remote",
-        # )
-        # try:
-        #     tv.rest_device_info()
-        #     self._is_on = True
-        #     update["state"] = PowerState.ON
-        #     tv = None
-        # except Exception:  # pylint: disable=broad-exception-caught
-        #     self._is_on = False
-        #     update["state"] = PowerState.OFF
 
         if self.power_off_in_progress:
             self._is_on = False
