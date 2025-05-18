@@ -189,6 +189,13 @@ class SamsungTv:
         # Reset the backoff counter
         self._connection_attempts = 0
 
+        for i in range(6):
+            _LOG.debug("[%s] Waiting for connection: (%s)", self.log_id, i)
+            self.check_power_status()            
+            if self._is_on:
+                break
+            await asyncio.sleep(3)
+
         await self._start_polling()
         await self._update_app_list()
 
