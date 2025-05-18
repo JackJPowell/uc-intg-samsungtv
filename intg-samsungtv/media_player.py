@@ -39,9 +39,9 @@ features = [
 class SamsungMediaPlayer(MediaPlayer):
     """Representation of a Samsung MediaPlayer entity."""
 
-    def __init__(self, config_device: SamsungDevice, device: tv.SamsungDevice):
+    def __init__(self, config_device: SamsungDevice, device: tv.SamsungTv):
         """Initialize the class."""
-        self._device: tv.SamsungDevice = device
+        self._device = device
         _LOG.debug("SamsungMediaPlayer init")
         entity_id = create_entity_id(config_device.identifier, EntityTypes.MEDIA_PLAYER)
         entity_id = config_device.identifier
@@ -84,16 +84,8 @@ class SamsungMediaPlayer(MediaPlayer):
             "Got %s command request: %s %s", entity.id, cmd_id, params if params else ""
         )
 
-        # If the entity is OFF (device is in standby), we turn it on regardless of the command
-        # if self._device.is_on is None or self._device.is_on is False:
-        #     _LOG.debug("Device not connected, reconnect")
-        #     await self._device._samsungtv.shortcuts().power()
-
-        # Only proceed if device connection is established
-        # if self._device.is_on is False:
-        #     return ucapi.StatusCodes.SERVICE_UNAVAILABLE
-
-        # res = ucapi.StatusCodes.BAD_REQUEST
+        if cmd_id not in [media_player.Commands.ON, media_player.Commands.TOGGLE]:
+            await self._device.check_connection_and_reconnect()
 
         try:
             match cmd_id:
