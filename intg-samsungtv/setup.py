@@ -79,8 +79,8 @@ async def driver_setup_handler(
     :param msg: the setup driver request object, either DriverSetupRequest or UserDataResponse
     :return: the setup action on how to continue
     """
-    global _setup_step # pylint: disable=global-statement
-    global _cfg_add_device # pylint: disable=global-statement
+    global _setup_step  # pylint: disable=global-statement
+    global _cfg_add_device  # pylint: disable=global-statement
 
     if isinstance(msg, DriverSetupRequest):
         _setup_step = SetupSteps.INIT
@@ -112,7 +112,7 @@ async def _handle_driver_setup(
 
     Initiated by Remote Two to set up the driver. The reconfigure flag determines the setup flow:
 
-    - Reconfigure is True: 
+    - Reconfigure is True:
         show the configured devices and ask user what action to perform (add, delete, reset).
     - Reconfigure is False: clear the existing configuration and show device discovery screen.
       Ask user to enter ip-address for manual configuration, otherwise auto-discovery is used.
@@ -120,7 +120,7 @@ async def _handle_driver_setup(
     :param msg: driver setup request data, only `reconfigure` flag is of interest.
     :return: the setup action on how to continue
     """
-    global _setup_step # pylint: disable=global-statement
+    global _setup_step  # pylint: disable=global-statement
 
     reconfigure = msg.reconfigure
     _LOG.debug("Starting driver setup, reconfigure=%s", reconfigure)
@@ -230,8 +230,8 @@ async def _handle_configuration_mode(
     :param msg: user input data from the configuration mode screen.
     :return: the setup action on how to continue
     """
-    global _setup_step # pylint: disable=global-statement
-    global _cfg_add_device # pylint: disable=global-statement
+    global _setup_step  # pylint: disable=global-statement
+    global _cfg_add_device  # pylint: disable=global-statement
 
     action = msg.input_values["action"]
 
@@ -305,6 +305,7 @@ async def _handle_discovery(msg: UserDataResponse) -> RequestUserInput | SetupEr
             "wifiMac"
         ),  # Both wired and wireless use the same key
     )
+    tv.close()
     config.devices.add_or_update(device)
 
     await asyncio.sleep(1)

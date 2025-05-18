@@ -89,6 +89,7 @@ async def on_subscribe_entities(entity_ids: list[str]) -> None:
         if entity_id in _configured_devices:
             device = _configured_devices[entity_id]
             _LOG.info("Add '%s' to configured devices and connect", device.name)
+            device.check_power_status()
             if device.is_on is None:
                 state = media_player.States.UNAVAILABLE
             else:
