@@ -9,7 +9,7 @@
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
+            "program": "./intg-samsungtv/driver.py",
             "console": "integratedTerminal",
             "justMyCode": false,
         }
