@@ -18,6 +18,7 @@ import ucapi
 import ucapi.api as uc
 from ucapi import media_player
 from media_player import SamsungMediaPlayer
+from remote import SamsungRemote
 from config import SamsungDevice
 import tv
 
@@ -267,7 +268,7 @@ def _register_available_entities(
     :return: True if added, False if the device was already in storage.
     """
     _LOG.info("_register_available_entities for %s", device_config.name)
-    entities = [SamsungMediaPlayer(device_config, device)]
+    entities = [SamsungMediaPlayer(device_config, device), SamsungRemote(device_config, device)]
     for entity in entities:
         if api.available_entities.contains(entity.id):
             api.available_entities.remove(entity.id)
