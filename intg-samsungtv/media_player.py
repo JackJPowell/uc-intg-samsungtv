@@ -14,7 +14,7 @@ import tv
 from config import SamsungDevice, create_entity_id
 from const import SimpleCommands
 from ucapi import MediaPlayer, media_player, EntityTypes
-from ucapi.media_player import DeviceClasses
+from ucapi.media_player import DeviceClasses, Attributes, States
 
 _LOOP = asyncio.new_event_loop()
 asyncio.set_event_loop(_LOOP)
@@ -44,16 +44,16 @@ class SamsungMediaPlayer(MediaPlayer):
         self._device = device
         _LOG.debug("SamsungMediaPlayer init")
         entity_id = create_entity_id(config_device.identifier, EntityTypes.MEDIA_PLAYER)
-        entity_id = config_device.identifier
         self.config = config_device
 
         super().__init__(
             entity_id,
             config_device.name,
             features,
-            {
-                media_player.Attributes.STATE: media_player.States.UNKNOWN,
-                media_player.Attributes.VOLUME: 0,
+            attributes = {
+                Attributes.STATE: device.state,
+                Attributes.SOURCE: device.source if device.source else "",
+                Attributes.SOURCE_LIST: device.source_list,
             },
             device_class=DeviceClasses.TV,
             options={
@@ -169,6 +169,48 @@ class SamsungMediaPlayer(MediaPlayer):
             return ucapi.StatusCodes.TIMEOUT
         return ucapi.StatusCodes.OK
 
+    def filter_changed_attributes(self, update: dict[str, Any]) -> dict[str, Any]:
+        """
+        Filter the given attributes and return only the changed values.
+
+        :param update: dictionary with attributes.
+        :return: filtered entity attributes containing changed attributes only.
+        """
+        attributes = {}
+
+        if Attributes.STATE in update:
+            state = update[Attributes.STATE]
+            attributes = self._key_update_helper(Attributes.STATE, state, attributes)
+
+        for attr in [
+            Attributes.SOURCE,
+            Attributes.SOURCE_LIST
+        ]:
+            if attr in update:
+                attributes = self._key_update_helper(attr, update[attr], attributes)
+
+        if Attributes.SOURCE_LIST in update:
+            if Attributes.SOURCE_LIST in self.attributes:
+                if update[Attributes.SOURCE_LIST] != self.attributes[Attributes.SOURCE_LIST]:
+                    attributes[Attributes.SOURCE_LIST] = update[Attributes.SOURCE_LIST]
+
+        if Attributes.STATE in attributes:
+            if attributes[Attributes.STATE] == States.OFF:
+                attributes[Attributes.SOURCE] = ""
+        _LOG.debug("Samsung Media Player update attributes %s -> %s", update, attributes)
+        return attributes
+
+    def _key_update_helper(self, key: str, value: str | None, attributes):
+        if value is None:
+            return attributes
+
+        if key in self.attributes:
+            if self.attributes[key] != value:
+                attributes[key] = value
+        else:
+            attributes[key] = value
+
+        return attributes
 
 def _get_cmd_param(name: str, params: dict[str, Any] | None) -> str | bool | None:
     if params is None:

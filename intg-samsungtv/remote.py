@@ -12,12 +12,11 @@ import ucapi
 from config import SamsungDevice, create_entity_id
 from ucapi import EntityTypes, Remote, StatusCodes, media_player
 from ucapi.media_player import States as MediaStates
-from ucapi.remote import Attributes, Commands, Features, Options
+from ucapi.remote import Attributes, Commands, Features
 from ucapi.remote import States as RemoteStates
-from ucapi.ui import DeviceButtonMapping, Buttons, UiPage
+from ucapi.ui import DeviceButtonMapping, Buttons
 import tv
 from const import (
-    SAMSUNG_STATE_MAPPING,
     SimpleCommands,
     key_update_helper,
 )
@@ -40,20 +39,19 @@ class SamsungRemote(Remote):
         self._device: tv.SamsungTv = device
         _LOG.debug("Samsung Remote init")
         entity_id = create_entity_id(config_device.identifier, EntityTypes.REMOTE)
-        features = [Features.SEND_CMD, Features.ON_OFF]
+        features = [Features.SEND_CMD, Features.ON_OFF, Features.TOGGLE]
         attributes = {
-            Attributes.STATE: SAMSUNG_REMOTE_STATE_MAPPING.get(
-                SAMSUNG_STATE_MAPPING.get(device.state)
-            ),
+            Attributes.STATE: SAMSUNG_REMOTE_STATE_MAPPING.get(device.state),
         }
         super().__init__(
             entity_id,
-            config_device.name,
+            f"{config_device.name} Remote",
             features,
             attributes,
             simple_commands=SAMSUNG_REMOTE_SIMPLE_COMMANDS,
             button_mapping=SAMSUNG_REMOTE_BUTTONS_MAPPING,
             ui_pages=SAMSUNG_REMOTE_UI_PAGES,
+            cmd_handler=self.command
         )
 
     def get_int_param(self, param: str, params: dict[str, Any], default: int):
@@ -98,17 +96,11 @@ class SamsungRemote(Remote):
         client = self._device
         res = None
         try:
-            if command in self.options[Options.SIMPLE_COMMANDS]:
-                if cmd_id in SAMSUNG_REMOTE_SIMPLE_COMMANDS:
-                    if cmd_id == SimpleCommands.EXIT:
-                        await client.send_key("KEY_MENU")
-                    if cmd_id == SimpleCommands.CH_LIST:
-                        await client.send_key("KEY_CH_LIST")
-            elif cmd_id == Commands.ON:
+            if command == 'remote.on':
                 await client.toggle_power(True)
-            elif cmd_id == Commands.OFF:
+            elif command == 'remote.off':
                 await client.toggle_power(False)
-            elif cmd_id == Commands.TOGGLE:
+            elif command == 'remote.toggle':
                 await client.toggle_power()
             elif cmd_id == Commands.SEND_CMD:
                 match command:
@@ -184,6 +176,14 @@ class SamsungRemote(Remote):
                         await client.send_key("KEY_MENU")
                     case SimpleCommands.CH_LIST:
                         await client.send_key("KEY_CH_LIST")
+                    case SimpleCommands.HDMI_1:
+                        await client.send_key("KEY_HDMI1")
+                    case SimpleCommands.HDMI_2:
+                        await client.send_key("KEY_HDMI2")
+                    case SimpleCommands.HDMI_3:
+                        await client.send_key("KEY_HDMI3")
+                    case SimpleCommands.HDMI_4:
+                        await client.send_key("KEY_HDMI4")
                 res = StatusCodes.OK
             elif cmd_id == Commands.SEND_CMD_SEQUENCE:
                 commands = params.get("sequence", [])
@@ -217,17 +217,19 @@ class SamsungRemote(Remote):
                 self.attributes, Attributes.STATE, state, attributes
             )
 
-        _LOG.debug("Plex Remote update attributes %s -> %s", update, attributes)
+        _LOG.debug("Samsung Remote update attributes %s -> %s", update, attributes)
         return attributes
 
 
-SAMSUNG_REMOTE_SIMPLE_COMMANDS = {
-                media_player.Options.SIMPLE_COMMANDS: [
+SAMSUNG_REMOTE_SIMPLE_COMMANDS = [
                     SimpleCommands.EXIT.value,
                     SimpleCommands.CH_LIST.value,
                     SimpleCommands.SLEEP.value,
-                ],
-            }
+                    SimpleCommands.HDMI_1.value,
+                    SimpleCommands.HDMI_2.value,
+                    SimpleCommands.HDMI_3.value,
+                    SimpleCommands.HDMI_4.value,
+                ]
 SAMSUNG_REMOTE_BUTTONS_MAPPING: [DeviceButtonMapping] = [
     {"button": Buttons.BACK, "short_press": {"cmd_id": media_player.Commands.BACK}},
     {"button": Buttons.HOME, "short_press": {"cmd_id": media_player.Commands.HOME}},
@@ -248,11 +250,11 @@ SAMSUNG_REMOTE_BUTTONS_MAPPING: [DeviceButtonMapping] = [
     {"button": Buttons.POWER, "short_press": {"cmd_id": media_player.Commands.TOGGLE}}
 ]
 
-SAMSUNG_REMOTE_UI_PAGES: [UiPage] = [
+SAMSUNG_REMOTE_UI_PAGES = [
     {
         "page_id": "Samsung commands",
         "name": "TV commands",
-        "grid": {"width": 4, "height": 6},
+        "grid": {"width": 4, "height": 7},
         "items": [
             {
                 "command": {
@@ -298,23 +300,7 @@ SAMSUNG_REMOTE_UI_PAGES: [UiPage] = [
                 },
                 "size": {
                     "height": 1,
-                    "width": 1
-                },
-                "type": "text"
-            },
-            {
-                "command": {
-                    "cmd_id": "remote.send",
-                    "params": {"command": media_player.Commands.SELECT_SOURCE, "repeat": 1}
-                },
-                "text": "Input",
-                "location": {
-                    "x": 3,
-                    "y": 0
-                },
-                "size": {
-                    "height": 1,
-                    "width": 1
+                    "width": 2
                 },
                 "type": "text"
             },
@@ -433,12 +419,76 @@ SAMSUNG_REMOTE_UI_PAGES: [UiPage] = [
             {
                 "command": {
                     "cmd_id": "remote.send",
+                    "params": {"command": SimpleCommands.HDMI_1, "repeat": 1}
+                },
+                "text": "HDMI 1",
+                "location": {
+                    "x": 0,
+                    "y": 4
+                },
+                "size": {
+                    "height": 1,
+                    "width": 1
+                },
+                "type": "text"
+            },
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": SimpleCommands.HDMI_2, "repeat": 1}
+                },
+                "text": "HDMI 2",
+                "location": {
+                    "x": 1,
+                    "y": 4
+                },
+                "size": {
+                    "height": 1,
+                    "width": 1
+                },
+                "type": "text"
+            },
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": SimpleCommands.HDMI_3, "repeat": 1}
+                },
+                "text": "HDMI 3",
+                "location": {
+                    "x": 2,
+                    "y": 4
+                },
+                "size": {
+                    "height": 1,
+                    "width": 1
+                },
+                "type": "text"
+            },
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": SimpleCommands.HDMI_4, "repeat": 1}
+                },
+                "text": "HDMI 4",
+                "location": {
+                    "x": 3,
+                    "y": 4
+                },
+                "size": {
+                    "height": 1,
+                    "width": 1
+                },
+                "type": "text"
+            },
+            {
+                "command": {
+                    "cmd_id": "remote.send",
                     "params": {"command": media_player.Commands.CHANNEL_UP, "repeat": 1}
                 },
                 "icon": "uc:up-arrow",
                 "location": {
                     "x": 3,
-                    "y": 4
+                    "y": 5
                 },
                 "size": {
                     "height": 1,
@@ -454,7 +504,7 @@ SAMSUNG_REMOTE_UI_PAGES: [UiPage] = [
                 "icon": "uc:down-arrow",
                 "location": {
                     "x": 3,
-                    "y": 5
+                    "y": 6
                 },
                 "size": {
                     "height": 1,
@@ -469,12 +519,12 @@ SAMSUNG_REMOTE_UI_PAGES: [UiPage] = [
                 },
                 "icon": "uc:mute",
                 "location": {
-                    "x": 0,
+                    "x": 1,
                     "y": 5
                 },
                 "size": {
                     "height": 1,
-                    "width": 1
+                    "width": 2
                 },
                 "type": "icon"
             },
@@ -485,8 +535,8 @@ SAMSUNG_REMOTE_UI_PAGES: [UiPage] = [
                 },
                 "icon": "uc:minus",
                 "location": {
-                    "x": 1,
-                    "y": 5
+                    "x": 0,
+                    "y": 6
                 },
                 "size": {
                     "height": 1,
@@ -501,7 +551,7 @@ SAMSUNG_REMOTE_UI_PAGES: [UiPage] = [
                 },
                 "icon": "uc:plus",
                 "location": {
-                    "x": 2,
+                    "x": 0,
                     "y": 5
                 },
                 "size": {
