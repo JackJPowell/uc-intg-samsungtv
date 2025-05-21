@@ -51,7 +51,7 @@ class SamsungRemote(Remote):
             simple_commands=SAMSUNG_REMOTE_SIMPLE_COMMANDS,
             button_mapping=SAMSUNG_REMOTE_BUTTONS_MAPPING,
             ui_pages=SAMSUNG_REMOTE_UI_PAGES,
-            cmd_handler=self.command
+            cmd_handler=self.command,
         )
 
     def get_int_param(self, param: str, params: dict[str, Any], default: int):
@@ -89,18 +89,18 @@ class SamsungRemote(Remote):
         self, cmd_id: str, params: dict[str, Any] | None = None
     ) -> StatusCodes:
         """Handle command."""
-        #hold = self.get_int_param("hold", params, 0)
+        # hold = self.get_int_param("hold", params, 0)
         delay = self.get_int_param("delay", params, 0)
         command = params.get("command", "")
 
         client = self._device
         res = None
         try:
-            if command == 'remote.on':
+            if command == "remote.on":
                 await client.toggle_power(True)
-            elif command == 'remote.off':
+            elif command == "remote.off":
                 await client.toggle_power(False)
-            elif command == 'remote.toggle':
+            elif command == "remote.toggle":
                 await client.toggle_power()
             elif cmd_id == Commands.SEND_CMD:
                 match command:
@@ -189,7 +189,9 @@ class SamsungRemote(Remote):
                 commands = params.get("sequence", [])
                 res = StatusCodes.OK
                 for command in commands:
-                    res = await self.handle_command(Commands.SEND_CMD, {"command": command, "params": params})
+                    res = await self.handle_command(
+                        Commands.SEND_CMD, {"command": command, "params": params}
+                    )
                     if delay > 0:
                         await asyncio.sleep(delay)
             else:
@@ -200,7 +202,6 @@ class SamsungRemote(Remote):
         except Exception as ex:  # pylint: disable=broad-except
             _LOG.error("Error executing command %s: %s", cmd_id, ex)
             return ucapi.StatusCodes.OK
-
 
     def filter_changed_attributes(self, update: dict[str, Any]) -> dict[str, Any]:
         """
@@ -222,32 +223,74 @@ class SamsungRemote(Remote):
 
 
 SAMSUNG_REMOTE_SIMPLE_COMMANDS = [
-                    SimpleCommands.EXIT.value,
-                    SimpleCommands.CH_LIST.value,
-                    SimpleCommands.SLEEP.value,
-                    SimpleCommands.HDMI_1.value,
-                    SimpleCommands.HDMI_2.value,
-                    SimpleCommands.HDMI_3.value,
-                    SimpleCommands.HDMI_4.value,
-                ]
+    SimpleCommands.EXIT.value,
+    SimpleCommands.CH_LIST.value,
+    SimpleCommands.SLEEP.value,
+    SimpleCommands.HDMI_1.value,
+    SimpleCommands.HDMI_2.value,
+    SimpleCommands.HDMI_3.value,
+    SimpleCommands.HDMI_4.value,
+]
 SAMSUNG_REMOTE_BUTTONS_MAPPING: [DeviceButtonMapping] = [
     {"button": Buttons.BACK, "short_press": {"cmd_id": media_player.Commands.BACK}},
     {"button": Buttons.HOME, "short_press": {"cmd_id": media_player.Commands.HOME}},
-    {"button": Buttons.CHANNEL_DOWN, "short_press": {"cmd_id": media_player.Commands.CURSOR_ENTER}},
-    {"button": Buttons.CHANNEL_UP, "short_press": {"cmd_id": media_player.Commands.CHANNEL_UP}},
-    {"button": Buttons.DPAD_UP, "short_press": {"cmd_id": media_player.Commands.CURSOR_UP}},
-    {"button": Buttons.DPAD_DOWN, "short_press": {"cmd_id": media_player.Commands.CURSOR_DOWN}},
-    {"button": Buttons.DPAD_LEFT, "short_press": {"cmd_id": media_player.Commands.CURSOR_LEFT}},
-    {"button": Buttons.DPAD_RIGHT, "short_press": {"cmd_id": media_player.Commands.CURSOR_RIGHT}},
-    {"button": Buttons.DPAD_MIDDLE, "short_press": {"cmd_id": media_player.Commands.CURSOR_ENTER}},
-    {"button": Buttons.VOLUME_UP, "short_press": {"cmd_id": media_player.Commands.VOLUME_UP}},
-    {"button": Buttons.VOLUME_DOWN, "short_press": {"cmd_id": media_player.Commands.VOLUME_DOWN}},
-    {"button": Buttons.MUTE, "short_press": {"cmd_id": media_player.Commands.MUTE_TOGGLE}},
-    {"button": Buttons.YELLOW, "short_press": {"cmd_id": media_player.Commands.FUNCTION_YELLOW}},
-    {"button": Buttons.GREEN, "short_press": {"cmd_id": media_player.Commands.FUNCTION_GREEN}},
-    {"button": Buttons.RED, "short_press": {"cmd_id": media_player.Commands.FUNCTION_RED}},
-    {"button": Buttons.BLUE, "short_press": {"cmd_id": media_player.Commands.FUNCTION_BLUE}},
-    {"button": Buttons.POWER, "short_press": {"cmd_id": media_player.Commands.TOGGLE}}
+    {
+        "button": Buttons.CHANNEL_DOWN,
+        "short_press": {"cmd_id": media_player.Commands.CURSOR_ENTER},
+    },
+    {
+        "button": Buttons.CHANNEL_UP,
+        "short_press": {"cmd_id": media_player.Commands.CHANNEL_UP},
+    },
+    {
+        "button": Buttons.DPAD_UP,
+        "short_press": {"cmd_id": media_player.Commands.CURSOR_UP},
+    },
+    {
+        "button": Buttons.DPAD_DOWN,
+        "short_press": {"cmd_id": media_player.Commands.CURSOR_DOWN},
+    },
+    {
+        "button": Buttons.DPAD_LEFT,
+        "short_press": {"cmd_id": media_player.Commands.CURSOR_LEFT},
+    },
+    {
+        "button": Buttons.DPAD_RIGHT,
+        "short_press": {"cmd_id": media_player.Commands.CURSOR_RIGHT},
+    },
+    {
+        "button": Buttons.DPAD_MIDDLE,
+        "short_press": {"cmd_id": media_player.Commands.CURSOR_ENTER},
+    },
+    {
+        "button": Buttons.VOLUME_UP,
+        "short_press": {"cmd_id": media_player.Commands.VOLUME_UP},
+    },
+    {
+        "button": Buttons.VOLUME_DOWN,
+        "short_press": {"cmd_id": media_player.Commands.VOLUME_DOWN},
+    },
+    {
+        "button": Buttons.MUTE,
+        "short_press": {"cmd_id": media_player.Commands.MUTE_TOGGLE},
+    },
+    {
+        "button": Buttons.YELLOW,
+        "short_press": {"cmd_id": media_player.Commands.FUNCTION_YELLOW},
+    },
+    {
+        "button": Buttons.GREEN,
+        "short_press": {"cmd_id": media_player.Commands.FUNCTION_GREEN},
+    },
+    {
+        "button": Buttons.RED,
+        "short_press": {"cmd_id": media_player.Commands.FUNCTION_RED},
+    },
+    {
+        "button": Buttons.BLUE,
+        "short_press": {"cmd_id": media_player.Commands.FUNCTION_BLUE},
+    },
+    {"button": Buttons.POWER, "short_press": {"cmd_id": media_player.Commands.TOGGLE}},
 ]
 
 SAMSUNG_REMOTE_UI_PAGES = [
@@ -259,597 +302,432 @@ SAMSUNG_REMOTE_UI_PAGES = [
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": media_player.Commands.TOGGLE, "repeat": 1}
+                    "params": {"command": media_player.Commands.TOGGLE, "repeat": 1},
                 },
                 "icon": "uc:power-on",
-                "location": {
-                    "x": 0,
-                    "y": 0
-                },
-                "size": {
-                    "height": 1,
-                    "width": 1
-                },
-                "type": "icon"
+                "location": {"x": 0, "y": 0},
+                "size": {"height": 1, "width": 1},
+                "type": "icon",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": media_player.Commands.INFO, "repeat": 1}
+                    "params": {"command": media_player.Commands.INFO, "repeat": 1},
                 },
                 "icon": "uc:info",
-                "location": {
-                    "x": 1,
-                    "y": 0
-                },
-                "size": {
-                    "height": 1,
-                    "width": 1
-                },
-                "type": "icon"
+                "location": {"x": 1, "y": 0},
+                "size": {"height": 1, "width": 1},
+                "type": "icon",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": media_player.Commands.SETTINGS, "repeat": 1}
+                    "params": {"command": media_player.Commands.SETTINGS, "repeat": 1},
                 },
                 "text": "Settings",
-                "location": {
-                    "x": 2,
-                    "y": 0
-                },
-                "size": {
-                    "height": 1,
-                    "width": 2
-                },
-                "type": "text"
+                "location": {"x": 2, "y": 0},
+                "size": {"height": 1, "width": 2},
+                "type": "text",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": media_player.Commands.MENU, "repeat": 1}
+                    "params": {"command": media_player.Commands.MENU, "repeat": 1},
                 },
                 "icon": "uc:menu",
                 "location": {
                     "x": 0,
                     "y": 1,
                 },
-                "size": {
-                    "height": 1,
-                    "width": 1
-                },
-                "type": "icon"
+                "size": {"height": 1, "width": 1},
+                "type": "icon",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": media_player.Commands.GUIDE, "repeat": 1}
+                    "params": {"command": media_player.Commands.GUIDE, "repeat": 1},
                 },
                 "icon": "uc:guide",
                 "location": {
                     "x": 1,
                     "y": 1,
                 },
-                "size": {
-                    "height": 1,
-                    "width": 1
-                },
-                "type": "icon"
+                "size": {"height": 1, "width": 1},
+                "type": "icon",
             },
-                        {
+            {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": SimpleCommands.CH_LIST, "repeat": 1}
+                    "params": {"command": SimpleCommands.CH_LIST, "repeat": 1},
                 },
                 "text": "CH List",
                 "location": {
                     "x": 2,
                     "y": 1,
                 },
-                "size": {
-                    "height": 1,
-                    "width": 2
-                },
-                "type": "text"
+                "size": {"height": 1, "width": 2},
+                "type": "text",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": media_player.Commands.FUNCTION_BLUE, "repeat": 1}
+                    "params": {
+                        "command": media_player.Commands.FUNCTION_BLUE,
+                        "repeat": 1,
+                    },
                 },
                 "text": "YELLOW",
-                "location": {
-                    "x": 0,
-                    "y": 2
-                },
-                "size": {
-                    "height": 1,
-                    "width": 2
-                },
-                "type": "text"
+                "location": {"x": 0, "y": 2},
+                "size": {"height": 1, "width": 2},
+                "type": "text",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": media_player.Commands.FUNCTION_GREEN, "repeat": 1}
+                    "params": {
+                        "command": media_player.Commands.FUNCTION_GREEN,
+                        "repeat": 1,
+                    },
                 },
                 "text": "GREEN",
-                "location": {
-                    "x": 2,
-                    "y": 2
-                },
-                "size": {
-                    "height": 1,
-                    "width": 2
-                },
-                "type": "text"
+                "location": {"x": 2, "y": 2},
+                "size": {"height": 1, "width": 2},
+                "type": "text",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": media_player.Commands.FUNCTION_RED, "repeat": 1}
+                    "params": {
+                        "command": media_player.Commands.FUNCTION_RED,
+                        "repeat": 1,
+                    },
                 },
                 "text": "RED",
-                "location": {
-                    "x": 0,
-                    "y": 3
-                },
-                "size": {
-                    "height": 1,
-                    "width": 2
-                },
-                "type": "text"
+                "location": {"x": 0, "y": 3},
+                "size": {"height": 1, "width": 2},
+                "type": "text",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": media_player.Commands.FUNCTION_YELLOW, "repeat": 1}
+                    "params": {
+                        "command": media_player.Commands.FUNCTION_YELLOW,
+                        "repeat": 1,
+                    },
                 },
                 "text": "YELLOW",
-                "location": {
-                    "x": 2,
-                    "y": 3
-                },
-                "size": {
-                    "height": 1,
-                    "width": 2
-                },
-                "type": "text"
+                "location": {"x": 2, "y": 3},
+                "size": {"height": 1, "width": 2},
+                "type": "text",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": SimpleCommands.HDMI_1, "repeat": 1}
+                    "params": {"command": SimpleCommands.HDMI_1, "repeat": 1},
                 },
                 "text": "HDMI 1",
-                "location": {
-                    "x": 0,
-                    "y": 4
-                },
-                "size": {
-                    "height": 1,
-                    "width": 1
-                },
-                "type": "text"
+                "location": {"x": 0, "y": 4},
+                "size": {"height": 1, "width": 1},
+                "type": "text",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": SimpleCommands.HDMI_2, "repeat": 1}
+                    "params": {"command": SimpleCommands.HDMI_2, "repeat": 1},
                 },
                 "text": "HDMI 2",
-                "location": {
-                    "x": 1,
-                    "y": 4
-                },
-                "size": {
-                    "height": 1,
-                    "width": 1
-                },
-                "type": "text"
+                "location": {"x": 1, "y": 4},
+                "size": {"height": 1, "width": 1},
+                "type": "text",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": SimpleCommands.HDMI_3, "repeat": 1}
+                    "params": {"command": SimpleCommands.HDMI_3, "repeat": 1},
                 },
                 "text": "HDMI 3",
-                "location": {
-                    "x": 2,
-                    "y": 4
-                },
-                "size": {
-                    "height": 1,
-                    "width": 1
-                },
-                "type": "text"
+                "location": {"x": 2, "y": 4},
+                "size": {"height": 1, "width": 1},
+                "type": "text",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": SimpleCommands.HDMI_4, "repeat": 1}
+                    "params": {"command": SimpleCommands.HDMI_4, "repeat": 1},
                 },
                 "text": "HDMI 4",
-                "location": {
-                    "x": 3,
-                    "y": 4
-                },
-                "size": {
-                    "height": 1,
-                    "width": 1
-                },
-                "type": "text"
+                "location": {"x": 3, "y": 4},
+                "size": {"height": 1, "width": 1},
+                "type": "text",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": media_player.Commands.CHANNEL_UP, "repeat": 1}
+                    "params": {
+                        "command": media_player.Commands.CHANNEL_UP,
+                        "repeat": 1,
+                    },
                 },
                 "icon": "uc:up-arrow",
-                "location": {
-                    "x": 3,
-                    "y": 5
-                },
-                "size": {
-                    "height": 1,
-                    "width": 1
-                },
-                "type": "icon"
+                "location": {"x": 3, "y": 5},
+                "size": {"height": 1, "width": 1},
+                "type": "icon",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": media_player.Commands.CHANNEL_DOWN, "repeat": 1}
+                    "params": {
+                        "command": media_player.Commands.CHANNEL_DOWN,
+                        "repeat": 1,
+                    },
                 },
                 "icon": "uc:down-arrow",
-                "location": {
-                    "x": 3,
-                    "y": 6
-                },
-                "size": {
-                    "height": 1,
-                    "width": 1
-                },
-                "type": "icon"
+                "location": {"x": 3, "y": 6},
+                "size": {"height": 1, "width": 1},
+                "type": "icon",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": media_player.Commands.MUTE_TOGGLE, "repeat": 1}
+                    "params": {
+                        "command": media_player.Commands.MUTE_TOGGLE,
+                        "repeat": 1,
+                    },
                 },
                 "icon": "uc:mute",
-                "location": {
-                    "x": 1,
-                    "y": 5
-                },
-                "size": {
-                    "height": 1,
-                    "width": 2
-                },
-                "type": "icon"
+                "location": {"x": 1, "y": 5},
+                "size": {"height": 1, "width": 2},
+                "type": "icon",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": media_player.Commands.VOLUME_DOWN, "repeat": 1}
+                    "params": {
+                        "command": media_player.Commands.VOLUME_DOWN,
+                        "repeat": 1,
+                    },
                 },
                 "icon": "uc:minus",
-                "location": {
-                    "x": 0,
-                    "y": 6
-                },
-                "size": {
-                    "height": 1,
-                    "width": 1
-                },
-                "type": "icon"
+                "location": {"x": 0, "y": 6},
+                "size": {"height": 1, "width": 1},
+                "type": "icon",
             },
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": media_player.Commands.VOLUME_UP, "repeat": 1}
+                    "params": {"command": media_player.Commands.VOLUME_UP, "repeat": 1},
                 },
                 "icon": "uc:plus",
-                "location": {
-                    "x": 0,
-                    "y": 5
-                },
-                "size": {
-                    "height": 1,
-                    "width": 1
-                },
-                "type": "icon"
+                "location": {"x": 0, "y": 5},
+                "size": {"height": 1, "width": 1},
+                "type": "icon",
             },
-        ]
+        ],
     },
     {
         "page_id": "TV numbers",
         "name": "TV numbers",
         "grid": {"height": 4, "width": 3},
-        "items": [{
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.DIGIT_1, "repeat": 1}
+        "items": [
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": media_player.Commands.DIGIT_1, "repeat": 1},
+                },
+                "location": {"x": 0, "y": 0},
+                "size": {"height": 1, "width": 1},
+                "text": "1",
+                "type": "text",
             },
-            "location": {
-                "x": 0,
-                "y": 0
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": media_player.Commands.DIGIT_2, "repeat": 1},
+                },
+                "location": {"x": 1, "y": 0},
+                "size": {"height": 1, "width": 1},
+                "text": "2",
+                "type": "text",
             },
-            "size": {
-                "height": 1,
-                "width": 1
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": media_player.Commands.DIGIT_3, "repeat": 1},
+                },
+                "location": {"x": 2, "y": 0},
+                "size": {"height": 1, "width": 1},
+                "text": "3",
+                "type": "text",
             },
-            "text": "1",
-            "type": "text"
-        }, {
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.DIGIT_2, "repeat": 1}
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": media_player.Commands.DIGIT_4, "repeat": 1},
+                },
+                "location": {"x": 0, "y": 1},
+                "size": {"height": 1, "width": 1},
+                "text": "4",
+                "type": "text",
             },
-            "location": {
-                "x": 1,
-                "y": 0
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": media_player.Commands.DIGIT_5, "repeat": 1},
+                },
+                "location": {"x": 1, "y": 1},
+                "size": {"height": 1, "width": 1},
+                "text": "5",
+                "type": "text",
             },
-            "size": {
-                "height": 1,
-                "width": 1
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": media_player.Commands.DIGIT_6, "repeat": 1},
+                },
+                "location": {"x": 2, "y": 1},
+                "size": {"height": 1, "width": 1},
+                "text": "6",
+                "type": "text",
             },
-            "text": "2",
-            "type": "text"
-        }, {
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.DIGIT_3, "repeat": 1}
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": media_player.Commands.DIGIT_7, "repeat": 1},
+                },
+                "location": {"x": 0, "y": 2},
+                "size": {"height": 1, "width": 1},
+                "text": "7",
+                "type": "text",
             },
-            "location": {
-                "x": 2,
-                "y": 0
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": media_player.Commands.DIGIT_8, "repeat": 1},
+                },
+                "location": {"x": 1, "y": 2},
+                "size": {"height": 1, "width": 1},
+                "text": "8",
+                "type": "text",
             },
-            "size": {
-                "height": 1,
-                "width": 1
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": media_player.Commands.DIGIT_9, "repeat": 1},
+                },
+                "location": {"x": 2, "y": 2},
+                "size": {"height": 1, "width": 1},
+                "text": "9",
+                "type": "text",
             },
-            "text": "3",
-            "type": "text"
-        }, {
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.DIGIT_4, "repeat": 1}
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": media_player.Commands.DIGIT_0, "repeat": 1},
+                },
+                "location": {"x": 1, "y": 3},
+                "size": {"height": 1, "width": 1},
+                "text": "0",
+                "type": "text",
             },
-            "location": {
-                "x": 0,
-                "y": 1
-            },
-            "size": {
-                "height": 1,
-                "width": 1
-            },
-            "text": "4",
-            "type": "text"
-        }, {
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.DIGIT_5, "repeat": 1}
-            },
-            "location": {
-                "x": 1,
-                "y": 1
-            },
-            "size": {
-                "height": 1,
-                "width": 1
-            },
-            "text": "5",
-            "type": "text"
-        }, {
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.DIGIT_6, "repeat": 1}
-            },
-            "location": {
-                "x": 2,
-                "y": 1
-            },
-            "size": {
-                "height": 1,
-                "width": 1
-            },
-            "text": "6",
-            "type": "text"
-        }, {
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.DIGIT_7, "repeat": 1}
-            },
-            "location": {
-                "x": 0,
-                "y": 2
-            },
-            "size": {
-                "height": 1,
-                "width": 1
-            },
-            "text": "7",
-            "type": "text"
-        }, {
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.DIGIT_8, "repeat": 1}
-            },
-            "location": {
-                "x": 1,
-                "y": 2
-            },
-            "size": {
-                "height": 1,
-                "width": 1
-            },
-            "text": "8",
-            "type": "text"
-        }, {
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.DIGIT_9, "repeat": 1}
-            },
-            "location": {
-                "x": 2,
-                "y": 2
-            },
-            "size": {
-                "height": 1,
-                "width": 1
-            },
-            "text": "9",
-            "type": "text"
-        }, {
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.DIGIT_0, "repeat": 1}
-            },
-            "location": {
-                "x": 1,
-                "y": 3
-            },
-            "size": {
-                "height": 1,
-                "width": 1
-            },
-            "text": "0",
-            "type": "text"
-        }
-        ]
+        ],
     },
     {
         "page_id": "TV direction pad",
         "name": "TV direction pad",
         "grid": {"height": 3, "width": 3},
-        "items": [{
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.BACK, "repeat": 1}
+        "items": [
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": media_player.Commands.BACK, "repeat": 1},
+                },
+                "location": {"x": 0, "y": 0},
+                "size": {"height": 1, "width": 1},
+                "icon": "uc:back",
+                "type": "icon",
             },
-            "location": {
-                "x": 0,
-                "y": 0
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": media_player.Commands.CURSOR_UP, "repeat": 1},
+                },
+                "location": {"x": 1, "y": 0},
+                "size": {"height": 1, "width": 1},
+                "icon": "uc:up-arrow",
+                "type": "icon",
             },
-            "size": {
-                "height": 1,
-                "width": 1
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": media_player.Commands.HOME, "repeat": 1},
+                },
+                "location": {"x": 2, "y": 0},
+                "size": {"height": 1, "width": 1},
+                "icon": "uc:home",
+                "type": "icon",
             },
-            "icon": "uc:back",
-            "type": "icon"
-        },{
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.CURSOR_UP, "repeat": 1}
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {
+                        "command": media_player.Commands.CURSOR_LEFT,
+                        "repeat": 1,
+                    },
+                },
+                "location": {"x": 0, "y": 1},
+                "size": {"height": 1, "width": 1},
+                "icon": "uc:left-arrow",
+                "type": "icon",
             },
-            "location": {
-                "x": 1,
-                "y": 0
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {
+                        "command": media_player.Commands.CURSOR_ENTER,
+                        "repeat": 1,
+                    },
+                },
+                "location": {"x": 1, "y": 1},
+                "size": {"height": 1, "width": 1},
+                "text": "OK",
+                "type": "text",
             },
-            "size": {
-                "height": 1,
-                "width": 1
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {
+                        "command": media_player.Commands.CURSOR_RIGHT,
+                        "repeat": 1,
+                    },
+                },
+                "location": {"x": 2, "y": 1},
+                "size": {"height": 1, "width": 1},
+                "icon": "uc:right-arrow",
+                "type": "icon",
             },
-            "icon": "uc:up-arrow",
-            "type": "icon"
-        },
-        {
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.HOME, "repeat": 1}
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {
+                        "command": media_player.Commands.CURSOR_DOWN,
+                        "repeat": 1,
+                    },
+                },
+                "location": {"x": 1, "y": 2},
+                "size": {"height": 1, "width": 1},
+                "icon": "uc:down-arrow",
+                "type": "icon",
             },
-            "location": {
-                "x": 2,
-                "y": 0
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {"command": media_player.Commands.BACK, "repeat": 1},
+                },
+                "location": {"x": 2, "y": 2},
+                "size": {"height": 1, "width": 1},
+                "text": "Exit",
+                "type": "text",
             },
-            "size": {
-                "height": 1,
-                "width": 1
-            },
-            "icon": "uc:home",
-            "type": "icon"
-        },
-        {
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.CURSOR_LEFT, "repeat": 1}
-            },
-            "location": {
-                "x": 0,
-                "y": 1
-            },
-            "size": {
-                "height": 1,
-                "width": 1
-            },
-            "icon": "uc:left-arrow",
-            "type": "icon"
-        },
-        {
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.CURSOR_ENTER, "repeat": 1}
-            },
-            "location": {
-                "x": 1,
-                "y": 1
-            },
-            "size": {
-                "height": 1,
-                "width": 1
-            },
-            "text": "OK",
-            "type": "text"
-        },
-        {
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.CURSOR_RIGHT, "repeat": 1}
-            },
-            "location": {
-                "x": 2,
-                "y": 1
-            },
-            "size": {
-                "height": 1,
-                "width": 1
-            },
-            "icon": "uc:right-arrow",
-            "type": "icon"
-        },
-        {
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.CURSOR_DOWN, "repeat": 1}
-            },
-            "location": {
-                "x": 1,
-                "y": 2
-            },
-            "size": {
-                "height": 1,
-                "width": 1
-            },
-            "icon": "uc:down-arrow",
-            "type": "icon"
-        },
-        {
-            "command": {
-                "cmd_id": "remote.send",
-                "params": {"command": media_player.Commands.BACK, "repeat": 1}
-            },
-            "location": {
-                "x": 2,
-                "y": 2
-            },
-            "size": {
-                "height": 1,
-                "width": 1
-            },
-            "text": "Exit",
-            "type": "text"
-        },
-        ]
-    }
+        ],
+    },
 ]
