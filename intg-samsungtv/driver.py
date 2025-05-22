@@ -18,7 +18,8 @@ import ucapi
 import ucapi.api as uc
 from ucapi import media_player
 from media_player import SamsungMediaPlayer
-from config import SamsungDevice
+from remote import SamsungRemote
+from config import SamsungDevice, device_from_entity_id
 import tv
 
 _LOG = logging.getLogger("driver")  # avoid having __main__ in log messages
@@ -41,7 +42,6 @@ async def on_r2_connect_cmd() -> None:
         ucapi.DeviceStates.CONNECTED
     )  # just to make sure the device state is set
     for device in _configured_devices.values():
-        # start background task
         await device.connect()
 
 
@@ -85,29 +85,34 @@ async def on_subscribe_entities(entity_ids: list[str]) -> None:
     :param entity_ids: entity identifiers.
     """
     _LOG.debug("Subscribe entities event: %s", entity_ids)
-    for entity_id in entity_ids:
-        if entity_id in _configured_devices:
-            device = _configured_devices[entity_id]
-            _LOG.info("Add '%s' to configured devices and connect", device.name)
-            device.check_power_status()
-            if device.is_on is None:
-                state = media_player.States.UNAVAILABLE
-            else:
-                state = (
-                    media_player.States.ON if device.is_on else media_player.States.OFF
-                )
-            api.configured_entities.update_attributes(
-                entity_id, {media_player.Attributes.STATE: state}
-            )
-            await device.connect()
-            continue
 
-        device = config.devices.get(entity_id)
+    for entity_id in entity_ids:
+        device_id = device_from_entity_id(entity_id)
+        if device_id is not None:
+            # this is a device entity, so we need to check if it is already configured
+            if device_id in _configured_devices:
+                device = _configured_devices[device_id]
+                _LOG.info("Add '%s' to configured devices and connect", device.name)
+                if device.is_on is None:
+                    state = media_player.States.UNAVAILABLE
+                else:
+                    state = (
+                        media_player.States.ON
+                        if device.is_on
+                        else media_player.States.OFF
+                    )
+                api.configured_entities.update_attributes(
+                    entity_id, {media_player.Attributes.STATE: state}
+                )
+                await device.connect()
+                continue
+
+        device = config.devices.get(device_id)
         if device:
             _add_configured_device(device)
         else:
             _LOG.error(
-                "Failed to subscribe entity %s: no Device instance found", entity_id
+                "Failed to subscribe entity %s: no Samsung TV instance found", entity_id
             )
 
 
@@ -116,46 +121,90 @@ async def on_unsubscribe_entities(entity_ids: list[str]) -> None:
     """On unsubscribe, we disconnect the objects and remove listeners for events."""
     _LOG.debug("Unsubscribe entities event: %s", entity_ids)
     for entity_id in entity_ids:
-        if entity_id in _configured_devices:
-            device = _configured_devices.pop(entity_id)
-            _LOG.info(
-                "Removed '%s' from configured devices and disconnect", device.name
-            )
-            await device.disconnect()
-            device.events.remove_all_listeners()
+        device_id = device_from_entity_id(entity_id)
+        if device_id is None:
+            continue
+        await _configured_devices[device_id].disconnect()
+        _configured_devices[device_id].events.remove_all_listeners()
 
 
-async def on_device_connected(identifier: str) -> None:
+async def on_device_connected(device_id: str):
     """Handle device connection."""
-    _LOG.debug("Device connected: %s", identifier)
+    _LOG.debug("Samsung TV connected: %s", device_id)
     state = media_player.States.UNKNOWN
-    if identifier in _configured_devices:
-        device = _configured_devices[identifier]
+    if device_id not in _configured_devices:
+        _LOG.warning("Samsung TV %s is not configured", device_id)
+        return
+
+    for entity_id in _entities_from_device_id(device_id):
+        configured_entity = api.configured_entities.get(entity_id)
+        if configured_entity is None:
+            _LOG.debug(
+                "Device connected : entity %s is not configured, ignoring it", entity_id
+            )
+            continue
+
+        device = _configured_devices[device_id]
         if device_state := device.state:
             state = _device_state_to_media_player_state(device_state)
 
-    api.configured_entities.update_attributes(
-        identifier, {media_player.Attributes.STATE: state}
-    )
-    await api.set_device_state(
-        ucapi.DeviceStates.CONNECTED
-    )  # just to make sure the device state is set
+        if configured_entity.entity_type == ucapi.EntityTypes.MEDIA_PLAYER:
+            api.configured_entities.update_attributes(
+                entity_id,
+                {ucapi.media_player.Attributes.STATE: state},
+            )
+        elif configured_entity.entity_type == ucapi.EntityTypes.REMOTE:
+            api.configured_entities.update_attributes(
+                entity_id, {ucapi.remote.Attributes.STATE: state}
+            )
+    await api.set_device_state(ucapi.DeviceStates.CONNECTED)
 
 
-async def on_device_disconnected(identifier: str) -> None:
+async def on_device_disconnected(device_id: str):
     """Handle device disconnection."""
-    _LOG.debug("Device disconnected: %s", identifier)
-    api.configured_entities.update_attributes(
-        identifier, {media_player.Attributes.STATE: media_player.States.UNAVAILABLE}
-    )
+    _LOG.debug("Samsung TV disconnected: %s", device_id)
+
+    for entity_id in _entities_from_device_id(device_id):
+        configured_entity = api.configured_entities.get(entity_id)
+        if configured_entity is None:
+            continue
+
+        if configured_entity.entity_type == ucapi.EntityTypes.MEDIA_PLAYER:
+            api.configured_entities.update_attributes(
+                entity_id,
+                {
+                    ucapi.media_player.Attributes.STATE: ucapi.media_player.States.UNAVAILABLE
+                },
+            )
+        elif configured_entity.entity_type == ucapi.EntityTypes.REMOTE:
+            api.configured_entities.update_attributes(
+                entity_id,
+                {ucapi.remote.Attributes.STATE: ucapi.remote.States.UNAVAILABLE},
+            )
 
 
-async def on_device_connection_error(identifier: str) -> None:
-    """Set entities of device to state UNAVAILABLE if device connection error occurred."""
-    # _LOG.error(message)
-    api.configured_entities.update_attributes(
-        identifier, {media_player.Attributes.STATE: media_player.States.UNAVAILABLE}
-    )
+async def on_device_connection_error(device_id: str, message):
+    """Set entities of LG TV to state UNAVAILABLE if device connection error occurred."""
+    _LOG.error(message)
+
+    for entity_id in _entities_from_device_id(device_id):
+        configured_entity = api.configured_entities.get(entity_id)
+        if configured_entity is None:
+            continue
+
+        if configured_entity.entity_type == ucapi.EntityTypes.MEDIA_PLAYER:
+            api.configured_entities.update_attributes(
+                entity_id,
+                {
+                    ucapi.media_player.Attributes.STATE: ucapi.media_player.States.UNAVAILABLE
+                },
+            )
+        elif configured_entity.entity_type == ucapi.EntityTypes.REMOTE:
+            api.configured_entities.update_attributes(
+                entity_id,
+                {ucapi.remote.Attributes.STATE: ucapi.remote.States.UNAVAILABLE},
+            )
+
     await api.set_device_state(ucapi.DeviceStates.ERROR)
 
 
@@ -181,55 +230,66 @@ async def on_device_update(entity_id: str, update: dict[str, Any] | None) -> Non
     :param update: dictionary containing the updated properties or None
     """
     attributes = {}
+    target_entity = None
+    for identifier in _entities_from_device_id(entity_id):
+        configured_entity = api.available_entities.get(identifier)
+        if configured_entity is None:
+            return
 
-    if api.configured_entities.contains(entity_id):
-        target_entity = api.configured_entities.get(entity_id)
-    else:
-        target_entity = api.available_entities.get(entity_id)
-    if target_entity is None:
-        return
+        if isinstance(configured_entity, SamsungMediaPlayer):
+            target_entity = api.available_entities.get(identifier)
+        elif isinstance(configured_entity, SamsungRemote):
+            target_entity = api.available_entities.get(identifier)
 
-    if "state" in update:
-        state = _device_state_to_media_player_state(update["state"])
-        if state == media_player.States.UNKNOWN:
-            logging.warning("Device state is UNKNOWN")
-        attributes[ucapi.media_player.Attributes.STATE] = state
+        if "state" in update:
+            state = _device_state_to_media_player_state(update["state"])
+            if target_entity.attributes.get(media_player.Attributes.STATE, None) != state:
+                attributes[ucapi.media_player.Attributes.STATE] = state
 
-    if (
-        "source" in update
-        and target_entity.attributes.get(media_player.Attributes.SOURCE, "")
-        != update["source"]
-    ):
-        attributes[media_player.Attributes.SOURCE] = update["source"]
+        if isinstance(configured_entity, SamsungMediaPlayer):
+            if (
+                "source" in update
+                and target_entity.attributes.get(media_player.Attributes.SOURCE, "")
+                != update["source"]
+            ):
+                attributes[media_player.Attributes.SOURCE] = update["source"]
 
-    if "sourceList" in update:
-        if media_player.Attributes.SOURCE_LIST in target_entity.attributes:
-            if len(
-                target_entity.attributes[media_player.Attributes.SOURCE_LIST]
-            ) != len(update["sourceList"]):
-                attributes[media_player.Attributes.SOURCE_LIST] = update["sourceList"]
-        else:
-            attributes[media_player.Attributes.SOURCE_LIST] = update["sourceList"]
+            if "source_list" in update:
+                if media_player.Attributes.SOURCE_LIST in target_entity.attributes:
+                    if len(
+                        target_entity.attributes[media_player.Attributes.SOURCE_LIST]
+                    ) != len(update["source_list"]):
+                        attributes[media_player.Attributes.SOURCE_LIST] = update[
+                            "source_list"
+                        ]
+                else:
+                    attributes[media_player.Attributes.SOURCE_LIST] = update[
+                        "source_list"
+                    ]
 
-    if "volume" in update:
-        attributes[media_player.Attributes.VOLUME] = update["volume"]
+            if "volume" in update:
+                attributes[media_player.Attributes.VOLUME] = update["volume"]
 
-    if media_player.Attributes.STATE in attributes:
-        if attributes[media_player.Attributes.STATE] == media_player.States.OFF:
-            attributes[media_player.Attributes.SOURCE] = ""
+            if media_player.Attributes.STATE in attributes:
+                if attributes[media_player.Attributes.STATE] == media_player.States.OFF:
+                    attributes[media_player.Attributes.SOURCE] = ""
 
-    if attributes:
-        if api.configured_entities.contains(entity_id):
-            api.configured_entities.update_attributes(entity_id, attributes)
-        else:
-            api.available_entities.update_attributes(entity_id, attributes)
+        if attributes:
+            if api.configured_entities.contains(identifier):
+                api.configured_entities.update_attributes(identifier, attributes)
+            else:
+                api.available_entities.update_attributes(identifier, attributes)
 
 
 def _add_configured_device(device_config: SamsungDevice, connect: bool = True) -> None:
     # the device should not yet be configured, but better be safe
     if device_config.identifier in _configured_devices:
+        _LOG.debug(
+            "DISCONNECTING: Existing config device updated, update the running device %s",
+            device_config,
+        )
         device = _configured_devices[device_config.identifier]
-        _LOOP.create_task(device.disconnect())
+        #_LOOP.create_task(device.disconnect())
     else:
         _LOG.debug(
             "Adding new device: %s (%s) %s",
@@ -244,13 +304,11 @@ def _add_configured_device(device_config: SamsungDevice, connect: bool = True) -
         device.events.on(tv.EVENTS.UPDATE, on_device_update)
 
         _configured_devices[device.identifier] = device
-        # device.check_power_status()
 
     async def start_connection():
         await device.connect()
 
     if connect:
-        # start background task
         _LOOP.create_task(start_connection())
 
     _register_available_entities(device_config, device)
@@ -267,12 +325,25 @@ def _register_available_entities(
     :return: True if added, False if the device was already in storage.
     """
     _LOG.info("_register_available_entities for %s", device_config.name)
-    entities = [SamsungMediaPlayer(device_config, device)]
+    entities = [
+        SamsungMediaPlayer(device_config, device),
+        SamsungRemote(device_config, device),
+    ]
     for entity in entities:
         if api.available_entities.contains(entity.id):
             api.available_entities.remove(entity.id)
         api.available_entities.add(entity)
     return True
+
+
+def _entities_from_device_id(device_id: str) -> list[str]:
+    """
+    Return all associated entity identifiers of the given device.
+
+    :param device_id: the device identifier
+    :return: list of entity identifiers
+    """
+    return [f"media_player.{device_id}", f"remote.{device_id}"]
 
 
 def on_device_added(device: SamsungDevice) -> None:
