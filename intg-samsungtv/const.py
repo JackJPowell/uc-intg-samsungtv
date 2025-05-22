@@ -8,6 +8,10 @@ class SimpleCommands(str, Enum):
     CH_LIST = "CH_LIST"
     EXIT = "EXIT"
     SLEEP = "SLEEP"
+    HDMI_1 = "HDMI_1"
+    HDMI_2 = "HDMI_2"
+    HDMI_3 = "HDMI_3"
+    HDMI_4 = "HDMI_4"
 
 
 class States(IntEnum):
@@ -22,6 +26,8 @@ class States(IntEnum):
 SAMSUNG_STATE_MAPPING = {
     States.OFF: MediaStates.OFF,
     States.ON: MediaStates.ON,
+    States.UNAVAILABLE: MediaStates.UNAVAILABLE,
+    States.UNKNOWN: MediaStates.UNKNOWN,
 }
 
 

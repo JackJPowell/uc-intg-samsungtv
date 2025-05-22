@@ -22,6 +22,7 @@ from samsungtvws.async_rest import SamsungTVAsyncRest
 from samsungtvws.event import ED_INSTALLED_APP_EVENT, parse_installed_app
 from samsungtvws.exceptions import HttpApiError
 from samsungtvws.remote import ChannelEmitCommand, SendRemoteKey
+from ucapi.media_player import Attributes as MediaAttr
 
 _LOG = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ _SamsungTvT = TypeVar("_SamsungTvT", bound="SamsungTv")
 _P = ParamSpec("_P")
 
 
-class PowerState(Enum):
+class PowerState(str, Enum):
     """Playback state for companion protocol."""
 
     OFF = "OFF"
@@ -73,6 +74,7 @@ class SamsungTv:
         self._app_list: dict[str, str] = {}
         self._volume_level: float = 0.0
         self._end_of_power_off: datetime | None = None
+        self._active_source: str = ""
 
     @property
     def device_config(self) -> SamsungDevice:
@@ -114,12 +116,38 @@ class SamsungTv:
         return PowerState.OFF
 
     @property
+    def source_list(self) -> list[str]:
+        """Return a list of available input sources."""
+        return sorted(self._app_list)
+
+    @property
+    def source(self) -> str:
+        """Return the current input source."""
+        return self._active_source
+
+    @property
+    def attributes(self) -> dict[str, any]:
+        """Return the device attributes."""
+        updated_data = {
+            MediaAttr.STATE: self.state,
+        }
+        if self.source_list:
+            updated_data[MediaAttr.SOURCE_LIST] = self.source_list
+        if self.source:
+            updated_data[MediaAttr.SOURCE] = self.source
+        return updated_data
+
+    @property
     def power_off_in_progress(self) -> bool:
         """Return if power off has been recently requested."""
         return (
             self._end_of_power_off is not None
             and self._end_of_power_off > datetime.utcnow()
         )
+
+    def update_config(self, device_config: SamsungDevice):
+        """Update the device configuration."""
+        self._device = device_config
 
     def _backoff(self) -> float:
         if self._connection_attempts * BACKOFF_SEC >= BACKOFF_MAX:
@@ -305,7 +333,7 @@ class SamsungTv:
         app_list = None
 
         try:
-            update["sourceList"] = ["TV", "HDMI"]
+            update["source_list"] = ["TV", "HDMI"]
             if self._samsungtv.is_alive():
                 app_list = await self._samsungtv.app_list()
                 if not app_list:
@@ -315,7 +343,7 @@ class SamsungTv:
                 return
             for app in app_list:
                 self._app_list[app.get("name")] = app.get("appId")
-                update["sourceList"].append(app.get("name"))
+                update["source_list"].append(app.get("name"))
         except Exception:  # pylint: disable=broad-exception-caught
             _LOG.exception("[%s] App list: protocol error", self.log_id)
 
@@ -370,7 +398,6 @@ class SamsungTv:
             return
         update = {}
         if not power:
-            await self.connect()
             self.check_power_status()
             power = not self._is_on
 
@@ -424,8 +451,7 @@ class SamsungTv:
         if self.power_off_in_progress:
             self._is_on = False
 
-        if previous_state != self.is_on:
-            self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
+        self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
 
 
 def handle_remote_event(event: str, response: Any) -> None:
