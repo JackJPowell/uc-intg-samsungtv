@@ -333,7 +333,7 @@ class SamsungTv:
         app_list = None
 
         try:
-            update["source_list"] = ["TV", "HDMI"]
+            update["source_list"] = ["TV", "HDMI", "HDMI1", "HDMI2", "HDMI3", "HDMI4"]
             if self._samsungtv.is_alive():
                 app_list = await self._samsungtv.app_list()
                 if not app_list:
@@ -370,6 +370,18 @@ class SamsungTv:
                 return
             elif app_name == "HDMI":
                 await self.send_key("KEY_HDMI")
+                return
+            elif app_name == "HDMI1":
+                await self.send_key("KEY_HDMI1")
+                return
+            elif app_name == "HDMI2":
+                await self.send_key("KEY_HDMI2")
+                return
+            elif app_name == "HDMI3":
+                await self.send_key("KEY_HDMI3")
+                return
+            elif app_name == "HDMI4":
+                await self.send_key("KEY_HDMI4")
                 return
             else:
                 app_id = self._app_list[app_name]

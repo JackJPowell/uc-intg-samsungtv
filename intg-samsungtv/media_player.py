@@ -14,7 +14,7 @@ import tv
 from config import SamsungDevice, create_entity_id
 from const import SimpleCommands
 from ucapi import MediaPlayer, media_player, EntityTypes
-from ucapi.media_player import DeviceClasses, Attributes, States
+from ucapi.media_player import DeviceClasses, Attributes
 
 _LOOP = asyncio.new_event_loop()
 asyncio.set_event_loop(_LOOP)
@@ -61,6 +61,10 @@ class SamsungMediaPlayer(MediaPlayer):
                     SimpleCommands.EXIT.value,
                     SimpleCommands.CH_LIST.value,
                     SimpleCommands.SLEEP.value,
+                    SimpleCommands.HDMI_1.value,
+                    SimpleCommands.HDMI_2.value,
+                    SimpleCommands.HDMI_3.value,
+                    SimpleCommands.HDMI_4.value,
                 ],
             },
             cmd_handler=self.media_player_cmd_handler,
@@ -99,8 +103,6 @@ class SamsungMediaPlayer(MediaPlayer):
                     await self._device.send_key("KEY_VOLUP")
                 case media_player.Commands.VOLUME_DOWN:
                     await self._device.send_key("KEY_VOLDOWN")
-                # case media_player.Commands.VOLUME:
-                #     self._device.volume_set(params.get("volume"))
                 case media_player.Commands.MUTE_TOGGLE:
                     await self._device.send_key("KEY_MUTE")
                 case media_player.Commands.CHANNEL_DOWN:
