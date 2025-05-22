@@ -1,3 +1,5 @@
+"""Samsung TV integration constants."""
+
 from enum import Enum, IntEnum
 from ucapi.media_player import States as MediaStates
 
@@ -29,17 +31,3 @@ SAMSUNG_STATE_MAPPING = {
     States.UNAVAILABLE: MediaStates.UNAVAILABLE,
     States.UNKNOWN: MediaStates.UNKNOWN,
 }
-
-
-def key_update_helper(input_attributes, key: str, value: str | None, attributes):
-    """Return modified attributes only."""
-    if value is None:
-        return attributes
-
-    if key in input_attributes:
-        if input_attributes[key] != value:
-            attributes[key] = value
-    else:
-        attributes[key] = value
-
-    return attributes

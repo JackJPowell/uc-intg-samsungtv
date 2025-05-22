@@ -18,7 +18,6 @@ from ucapi.ui import DeviceButtonMapping, Buttons
 import tv
 from const import (
     SimpleCommands,
-    key_update_helper,
 )
 
 _LOG = logging.getLogger(__name__)
@@ -202,25 +201,6 @@ class SamsungRemote(Remote):
         except Exception as ex:  # pylint: disable=broad-except
             _LOG.error("Error executing command %s: %s", cmd_id, ex)
             return ucapi.StatusCodes.OK
-
-    def filter_changed_attributes(self, update: dict[str, Any]) -> dict[str, Any]:
-        """
-        Filter the given attributes and return only the changed values.
-
-        :param update: dictionary with attributes.
-        :return: filtered entity attributes containing changed attributes only.
-        """
-        attributes = {}
-
-        if Attributes.STATE in update:
-            state = SAMSUNG_REMOTE_STATE_MAPPING.get(update[Attributes.STATE])
-            attributes = key_update_helper(
-                self.attributes, Attributes.STATE, state, attributes
-            )
-
-        _LOG.debug("Samsung Remote update attributes %s -> %s", update, attributes)
-        return attributes
-
 
 SAMSUNG_REMOTE_SIMPLE_COMMANDS = [
     SimpleCommands.EXIT.value,
