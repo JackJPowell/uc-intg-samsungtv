@@ -12,6 +12,7 @@ from enum import IntEnum
 import config
 from config import SamsungDevice
 from samsungtvws import SamsungTVWS
+from discover import SddpResponseInfo
 from ucapi import (
     AbortDriverSetup,
     DriverSetupRequest,
@@ -124,6 +125,12 @@ async def _handle_driver_setup(
 
     reconfigure = msg.reconfigure
     _LOG.debug("Starting driver setup, reconfigure=%s", reconfigure)
+
+    sddp = SddpResponseInfo()
+    await sddp.get(search_pattern="Samsung*",response_wait_time=1)
+    if sddp.address is not None:
+        _LOG.debug("Found Samsung TV at %s", sddp.address)
+        ip = sddp.address
 
     if reconfigure:
         _setup_step = SetupSteps.CONFIGURATION_MODE
