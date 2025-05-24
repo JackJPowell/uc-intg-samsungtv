@@ -11,7 +11,7 @@ Supported versions:
 
 Supported attributes:
 - State (on, off, unknown)
-- Source
+- Source List
 
 Supported commands:
 - Turn on & off (device will be put into standby)
@@ -26,8 +26,10 @@ Supported commands:
 ### Network
 
 - The Samsung TV device must be on the same network subnet as the Remote. 
-- When using DHCP: a static IP address reservation for the Samsung TV device(s) is recommended.  
-  This speeds up reconnection and helps to identify the device again if Samsung changes the (not so) unique device identifiers. 
+- When using DHCP: a static IP address reservation for the Samsung TV device(s) is recommended.
+- SDDP discovery is used to detect your Samsung TV on the network.
+  - This functionality may need to be manually enabled on your TV.
+  - Settings / General / Network / Expert Settings / IP Remote (Enabled)
 
 ### Samsung TV device
 
@@ -35,7 +37,34 @@ Supported commands:
 
 ## Usage
 
-### Setup
+### Docker
+```
+docker run -d \
+  --name Samsung \
+  --network host \
+  -v $(pwd)/<local_directory>:/config \
+  --restart unless-stopped \
+  ghcr.io/jackjpowell/uc-intg-samsungtv:latest
+```
+
+### Docker Compose
+
+```
+  samsungtv:
+    container_name: Samsung
+    image: ghcr.io/jackjpowell/uc-intg-samsungtv:latest
+    network_mode: host
+    volumes:
+      - ./<local_directory>:/config
+    restart: unless-stopped
+```
+
+### Install on Remote
+
+- Download tar.gz file from Releases section of this repository
+- Upload the file to the remove via the integrations tab (Requires Remote Beta)
+
+### Setup (For Development)
 
 - Requires Python 3.11
 - Install required libraries:  
