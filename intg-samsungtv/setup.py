@@ -12,6 +12,7 @@ from enum import IntEnum
 import config
 from config import SamsungDevice
 from samsungtvws import SamsungTVWS
+from discover import SddpDiscovery
 from ucapi import (
     AbortDriverSetup,
     DriverSetupRequest,
@@ -39,7 +40,7 @@ class SetupSteps(IntEnum):
 _setup_step = SetupSteps.INIT
 _cfg_add_device: bool = False
 
-_user_input_discovery = RequestUserInput(
+_user_input_manual = RequestUserInput(
     {"en": "Samsung TV Setup"},
     [
         {
@@ -94,8 +95,18 @@ async def driver_setup_handler(
             and "action" in msg.input_values
         ):
             return await _handle_configuration_mode(msg)
-        if _setup_step == SetupSteps.DISCOVER and "ip" in msg.input_values:
-            return await _handle_discovery(msg)
+        if (
+            _setup_step == SetupSteps.DISCOVER
+            and "ip" in msg.input_values
+            and msg.input_values.get("ip") != "manual"
+        ):
+            return await _handle_creation(msg)
+        if (
+            _setup_step == SetupSteps.DISCOVER
+            and "ip" in msg.input_values
+            and msg.input_values.get("ip") == "manual"
+        ):
+            return await _handle_manual()
         _LOG.error("No user input was received for step: %s", msg)
     elif isinstance(msg, AbortDriverSetup):
         _LOG.info("Setup was aborted with code: %s", msg.error)
@@ -213,7 +224,7 @@ async def _handle_driver_setup(
     # Initial setup, make sure we have a clean configuration
     config.devices.clear()  # triggers device instance removal
     _setup_step = SetupSteps.DISCOVER
-    return _user_input_discovery
+    return await _handle_discovery()
 
 
 async def _handle_configuration_mode(
@@ -247,7 +258,7 @@ async def _handle_configuration_mode(
                 _LOG.warning("Could not update device from configuration: %s", choice)
                 return SetupError(error_type=IntegrationSetupError.OTHER)
             _setup_step = SetupSteps.DISCOVER
-            return _user_input_discovery
+            return _user_input_manual
         case "remove":
             choice = msg.input_values["choice"]
             if not config.devices.remove(choice):
@@ -262,10 +273,57 @@ async def _handle_configuration_mode(
             return SetupError(error_type=IntegrationSetupError.OTHER)
 
     _setup_step = SetupSteps.DISCOVER
-    return _user_input_discovery
+    return _user_input_manual
 
 
-async def _handle_discovery(msg: UserDataResponse) -> RequestUserInput | SetupError:
+async def _handle_manual() -> RequestUserInput | SetupError:
+    return _user_input_manual
+
+
+async def _handle_discovery() -> RequestUserInput | SetupError:
+    """
+    Process user data response from the first setup process screen.
+    """
+    global _setup_step  # pylint: disable=global-statement
+
+    sddp = SddpDiscovery()
+    await sddp.get(search_pattern="Samsung", response_wait_time=1)
+    if len(sddp.discovered) > 0:
+        _LOG.debug("Found Samsung TVs")
+
+        dropdown_devices = []
+        for device in sddp.discovered:
+            dropdown_devices.append(
+                {"id": device.address, "label": {"en": f"{device.type}"}}
+            )
+
+        dropdown_devices.append({"id": "manual", "label": {"en": "Setup Manually"}})
+
+        return RequestUserInput(
+            {"en": "Discovered Samsung TVs"},
+            [
+                {
+                    "field": {
+                        "dropdown": {
+                            "value": dropdown_devices[0]["id"],
+                            "items": dropdown_devices,
+                        }
+                    },
+                    "id": "ip",
+                    "label": {
+                        "en": "Discovered TVs:",
+                    },
+                },
+            ],
+        )
+
+    # Initial setup, make sure we have a clean configuration
+    config.devices.clear()  # triggers device instance removal
+    _setup_step = SetupSteps.DISCOVER
+    return _user_input_manual
+
+
+async def _handle_creation(msg: UserDataResponse) -> RequestUserInput | SetupError:
     """
     Process user data response from the first setup process screen.
 
