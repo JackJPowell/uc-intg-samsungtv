@@ -202,6 +202,7 @@ class SamsungRemote(Remote):
             _LOG.error("Error executing command %s: %s", cmd_id, ex)
             return ucapi.StatusCodes.OK
 
+
 SAMSUNG_REMOTE_SIMPLE_COMMANDS = [
     SimpleCommands.EXIT.value,
     SimpleCommands.CH_LIST.value,

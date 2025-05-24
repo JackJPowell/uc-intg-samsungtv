@@ -243,7 +243,10 @@ async def on_device_update(entity_id: str, update: dict[str, Any] | None) -> Non
 
         if "state" in update:
             state = _device_state_to_media_player_state(update["state"])
-            if target_entity.attributes.get(media_player.Attributes.STATE, None) != state:
+            if (
+                target_entity.attributes.get(media_player.Attributes.STATE, None)
+                != state
+            ):
                 attributes[ucapi.media_player.Attributes.STATE] = state
 
         if isinstance(configured_entity, SamsungMediaPlayer):
@@ -289,7 +292,7 @@ def _add_configured_device(device_config: SamsungDevice, connect: bool = True) -
             device_config,
         )
         device = _configured_devices[device_config.identifier]
-        #_LOOP.create_task(device.disconnect())
+        # _LOOP.create_task(device.disconnect())
     else:
         _LOG.debug(
             "Adding new device: %s (%s) %s",
