@@ -118,7 +118,7 @@ class SamsungRemote(Remote):
                     case media_player.Commands.CHANNEL_DOWN:
                         await client.send_key("KEY_CHDOWN")
                     case media_player.Commands.CHANNEL_UP:
-                        await client.send_key("KEY_CHDOWN")
+                        await client.send_key("KEY_CHUP")
                     case media_player.Commands.CURSOR_UP:
                         await client.send_key("KEY_UP")
                     case media_player.Commands.CURSOR_DOWN:
