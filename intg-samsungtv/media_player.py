@@ -108,7 +108,7 @@ class SamsungMediaPlayer(MediaPlayer):
                 case media_player.Commands.CHANNEL_DOWN:
                     await self._device.send_key("KEY_CHDOWN")
                 case media_player.Commands.CHANNEL_UP:
-                    await self._device.send_key("KEY_CHDOWN")
+                    await self._device.send_key("KEY_CHUP")
                 case media_player.Commands.CURSOR_UP:
                     await self._device.send_key("KEY_UP")
                 case media_player.Commands.CURSOR_DOWN:
