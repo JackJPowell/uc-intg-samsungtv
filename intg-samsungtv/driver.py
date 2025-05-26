@@ -50,7 +50,7 @@ async def on_r2_disconnect_cmd():
     """Disconnect all configured devices when the Remote Two sends the disconnect command."""
     _LOG.debug("Client disconnect command: disconnecting device(s)")
     for device in _configured_devices.values():
-        await device.disconnect()
+        await device.disconnect(continue_polling=False)
 
 
 @api.listens_to(ucapi.Events.ENTER_STANDBY)
@@ -58,11 +58,11 @@ async def on_r2_enter_standby() -> None:
     """
     Enter standby notification from Remote Two.
 
-    Disconnect every ATV instances.
+    Disconnect every Samsung instances.
     """
     _LOG.debug("Enter standby event: disconnecting device(s)")
     for device in _configured_devices.values():
-        await device.disconnect()
+        await device.disconnect(continue_polling=False)
 
 
 @api.listens_to(ucapi.Events.EXIT_STANDBY)
@@ -124,7 +124,7 @@ async def on_unsubscribe_entities(entity_ids: list[str]) -> None:
         device_id = device_from_entity_id(entity_id)
         if device_id is None:
             continue
-        await _configured_devices[device_id].disconnect()
+        await _configured_devices[device_id].disconnect(continue_polling=False)
         _configured_devices[device_id].events.remove_all_listeners()
 
 
@@ -292,7 +292,6 @@ def _add_configured_device(device_config: SamsungDevice, connect: bool = True) -
             device_config,
         )
         device = _configured_devices[device_config.identifier]
-        # _LOOP.create_task(device.disconnect())
     else:
         _LOG.debug(
             "Adding new device: %s (%s) %s",
@@ -362,7 +361,7 @@ def on_device_removed(device: SamsungDevice | None) -> None:
             "Configuration cleared, disconnecting & removing all configured device instances"
         )
         for device in _configured_devices.values():
-            _LOOP.create_task(device.disconnect())
+            _LOOP.create_task(device.disconnect(continue_polling=False))
             device.events.remove_all_listeners()
         _configured_devices.clear()
         api.configured_entities.clear()
@@ -371,7 +370,7 @@ def on_device_removed(device: SamsungDevice | None) -> None:
         if device.identifier in _configured_devices:
             _LOG.debug("Disconnecting from removed device %s", device.identifier)
             device = _configured_devices.pop(device.identifier)
-            _LOOP.create_task(device.disconnect())
+            _LOOP.create_task(device.disconnect(continue_polling=False))
             device.events.remove_all_listeners()
             entity_id = device.identifier
             api.configured_entities.remove(entity_id)
