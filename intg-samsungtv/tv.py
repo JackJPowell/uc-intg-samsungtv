@@ -145,22 +145,16 @@ class SamsungTv:
             and self._end_of_power_off > datetime.utcnow()
         )
 
+    @property
+    def timeout(self) -> int:
+        """Return the timeout for the connection."""
+        if self._device.token == "":
+            return 30
+        return 3
+
     def update_config(self, device_config: SamsungDevice):
         """Update the device configuration."""
         self._device = device_config
-
-    def _backoff(self) -> float:
-        if self._connection_attempts * BACKOFF_SEC >= BACKOFF_MAX:
-            return BACKOFF_MAX
-
-        return self._connection_attempts * BACKOFF_SEC
-
-    def _handle_disconnect(self):
-        """Handle that the device disconnected and restart connect loop."""
-        _ = asyncio.ensure_future(self._stop_polling())
-        if self._samsungtv:
-            self._samsungtv = None
-        self._start_connect_loop()
 
     async def connect(self) -> None:
         """Establish connection to TV."""
@@ -168,47 +162,18 @@ class SamsungTv:
             return
 
         _LOG.debug("[%s] Connecting to device", self.log_id)
-        self._start_connect_loop()
-
-    def _start_connect_loop(self) -> None:
         if not self._connect_task and not self._samsungtv:
-            # or (self._samsungtv and not self._samsungtv.is_alive())
             self.events.emit(EVENTS.CONNECTING, self._device.identifier)
-            self._connect_task = asyncio.create_task(self._connect_loop())
+            self._connect_task = asyncio.create_task(self._connect_setup())
         else:
             _LOG.debug(
-                "[%s] Not starting connect loop (Samsung TV: %s, ConnectTask: %s)",
+                "[%s] Not starting connect setup (Samsung TV: %s, ConnectTask: %s)",
                 self.log_id,
                 self._samsungtv is None,
                 self._connect_task is not None,
             )
 
-    async def _connect_loop(self) -> None:
-        _LOG.debug("[%s] Starting connect loop", self.log_id)
-
-        while self._samsungtv is None:
-            await self._connect_once()
-            if self._samsungtv is not None:
-                break
-
-            self._connection_attempts += 1
-            backoff = self._backoff()
-            _LOG.debug("[%s] Trying to connect again in %ds", self.log_id, backoff)
-            await asyncio.sleep(backoff)
-
-        _LOG.debug("[%s] Connect loop ended", self.log_id)
-        self._connect_task = None
-
-        # Reset the backoff counter
-        self._connection_attempts = 0
-
-        await self._start_polling()
-        await self._update_app_list()
-
-        self.events.emit(EVENTS.CONNECTED, self._device.identifier)
-        _LOG.debug("[%s] Connected", self.log_id)
-
-    async def _connect_once(self) -> None:
+    async def _connect_setup(self) -> None:
         try:
             await self._connect()
 
@@ -216,7 +181,12 @@ class SamsungTv:
                 self._samsungtv is not None
                 and self._samsungtv.token != self._device.token
             ):
-                _LOG.debug("[%s] Token changed, reconnecting", self.log_id)
+                _LOG.debug(
+                    "[%s] Token changed - Old: %s, New: %s",
+                    self.log_id,
+                    self._device.token,
+                    self._samsungtv.token,
+                )
                 self._device.token = self._samsungtv.token
                 config.devices.update(self._device)
 
@@ -232,13 +202,21 @@ class SamsungTv:
                 self.events.emit(
                     EVENTS.UPDATE, self._device.identifier, {"state": PowerState.OFF}
                 )
+                await self.disconnect()
         except asyncio.CancelledError:
             pass
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error("[%s] Could not connect: %s", self.log_id, err)
             self._samsungtv = None
         finally:
-            _LOG.debug("[%s] Connect once finished", self.log_id)
+            _LOG.debug("[%s] Connect setup finished", self.log_id)
+
+        await asyncio.sleep(1)
+        await self._start_polling()
+        await self._update_app_list()
+
+        self.events.emit(EVENTS.CONNECTED, self._device.identifier)
+        _LOG.debug("[%s] Connected", self.log_id)
 
     async def _connect(self) -> None:
         """Connect to the device."""
@@ -249,6 +227,7 @@ class SamsungTv:
             key_press_delay=0.1,
             token=self._device.token,
             name="Unfolded Circle Remote",
+            timeout=self.timeout,
         )
 
         try:
@@ -259,10 +238,11 @@ class SamsungTv:
                 f"An error occurred while connecting to the TV (Start Listening): {e}"
             )
 
-    async def disconnect(self) -> None:
+    async def disconnect(self, continue_polling: bool = True) -> None:
         """Disconnect from Samsung."""
         _LOG.debug("[%s] Disconnecting from device", self.log_id)
-        await self._stop_polling()
+        if not continue_polling:
+            await self._stop_polling()
 
         try:
             if self._samsungtv:
@@ -305,8 +285,7 @@ class SamsungTv:
 
         try:
             if not self._samsungtv.is_alive():
-                await self.close()
-                self._samsungtv = None
+                await self.disconnect()
                 await self.connect()
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.exception(
@@ -401,7 +380,7 @@ class SamsungTv:
         await asyncio.sleep(1)
         while True:
             self.check_power_status()
-            await asyncio.sleep(5)
+            await asyncio.sleep(15)
 
     async def toggle_power(self, power: bool | None = None) -> None:
         """Handle power state change."""
@@ -409,16 +388,16 @@ class SamsungTv:
             _LOG.debug("TV is powering off, not sending power command")
             return
         update = {}
-        if not power:
+        if power is None:
             self.check_power_status()
             power = not self._is_on
 
         if power:
             await self.close()
-            for i in range(6):
+            for i in range(5):
                 _LOG.debug("[%s] Sending magic packet (%s)", self.log_id, i)
                 wakeonlan.send_magic_packet(self._device.mac_address)
-                await asyncio.sleep(3)
+                await asyncio.sleep(6)
                 await self.check_connection_and_reconnect()
                 self.check_power_status()
                 if self._is_on:
@@ -442,13 +421,17 @@ class SamsungTv:
     def check_power_status(self) -> None:
         """Return the power status of the device."""
         update = {}
-        previous_state = self.is_on
+        samsungtv = None
+        if isinstance(self, SamsungTVWSAsyncRemote):
+            samsungtv = self
+        else:
+            samsungtv = self._samsungtv
 
-        if self._samsungtv is not None:
-            if self._samsungtv.is_alive():
-                _LOG.debug("[%s] Device is alive", self.log_id)
+        if samsungtv is not None:
+            if samsungtv.is_alive():
                 self._is_on = True
                 update["state"] = PowerState.ON
+                _LOG.debug("[%s] Device is alive", self.log_id)
             else:
                 _LOG.debug(
                     "[%s] Device is not alive _samsungtv is not None", self.log_id
