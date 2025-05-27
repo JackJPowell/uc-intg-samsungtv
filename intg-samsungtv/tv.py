@@ -317,9 +317,10 @@ class SamsungTv:
                 app_list = await self._samsungtv.app_list()
                 if not app_list:
                     app_list = await self._get_app_list_via_remote()
-            if not app_list:
+
+            if app_list is None or len(app_list) == 0:
                 _LOG.error("[%s] Unable to retrieve app list.", self.log_id)
-                return
+
             for app in app_list:
                 self._app_list[app.get("name")] = app.get("appId")
                 update["source_list"].append(app.get("name"))
@@ -328,13 +329,18 @@ class SamsungTv:
 
         self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
 
-    async def _get_app_list_via_remote(self) -> dict[str, str]:
+    async def _get_app_list_via_remote(self) -> list[str, str]:
         if not self.is_on or not self._samsungtv:
             return {}
-
-        return await self._samsungtv.send_commands(
-            ChannelEmitCommand.get_installed_app()
-        )
+        try:
+            app_list = await self._samsungtv.send_command(
+                ChannelEmitCommand.get_installed_app()
+            )
+            if app_list is None:
+                return []
+        except Exception:  # pylint: disable=broad-exception-caught
+            _LOG.exception("[%s] App list: remote error", self.log_id)
+            return []
 
     async def launch_app(
         self, app_id: str | None = None, app_name: str | None = None

@@ -55,7 +55,11 @@ class SamsungRemote(Remote):
 
     def get_int_param(self, param: str, params: dict[str, Any], default: int):
         """Get parameter in integer format."""
-        value = params.get(param, default)
+        try:
+            value = params.get(param, default)
+        except AttributeError:
+            return default
+
         if isinstance(value, str) and len(value) > 0:
             return int(float(value))
         return default
@@ -72,13 +76,15 @@ class SamsungRemote(Remote):
         :param params: optional command parameters
         :return: status code of the command request
         """
+        repeat = 1
         _LOG.info("Got %s command request: %s %s", self.id, cmd_id, params)
 
         if self._device is None:
             _LOG.warning("No Samsung instance for entity: %s", self.id)
             return StatusCodes.SERVICE_UNAVAILABLE
 
-        repeat = self.get_int_param("repeat", params, 1)
+        if params:
+            repeat = self.get_int_param("repeat", params, 1)
 
         for _i in range(0, repeat):
             await self.handle_command(cmd_id, params)
