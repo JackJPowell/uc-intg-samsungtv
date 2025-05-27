@@ -232,7 +232,7 @@ class SamsungTv:
 
         try:
             print("[%s] Start listening", self.log_id)
-            await self._samsungtv.start_listening(handle_remote_event)
+            await self._samsungtv.start_listening(self.handle_remote_event)
         except Exception as e:  # pylint: disable=broad-exception-caught
             print(
                 f"An error occurred while connecting to the TV (Start Listening): {e}"
@@ -309,21 +309,19 @@ class SamsungTv:
     async def _update_app_list(self) -> None:
         _LOG.debug("[%s] Updating app list", self.log_id)
         update = {}
-        app_list = None
 
         try:
             update["source_list"] = ["TV", "HDMI", "HDMI1", "HDMI2", "HDMI3", "HDMI4"]
             if self._samsungtv.is_alive():
-                app_list = await self._samsungtv.app_list()
-                if not app_list:
-                    app_list = await self._get_app_list_via_remote()
+                await self._samsungtv.app_list()
+                if not self._app_list:
+                    await self._get_app_list_via_remote()
 
-            if app_list is None or len(app_list) == 0:
+            if self._app_list is None or len(self._app_list) == 0:
                 _LOG.error("[%s] Unable to retrieve app list.", self.log_id)
 
-            for app in app_list:
-                self._app_list[app.get("name")] = app.get("appId")
-                update["source_list"].append(app.get("name"))
+            for app in self._app_list:
+                update["source_list"].append(app)
         except Exception:  # pylint: disable=broad-exception-caught
             _LOG.exception("[%s] App list: protocol error", self.log_id)
 
@@ -455,14 +453,15 @@ class SamsungTv:
         self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
 
 
-def handle_remote_event(event: str, response: Any) -> None:
-    """Handle remote events."""
-    if event == ED_INSTALLED_APP_EVENT:
-        apps = {
-            app["name"]: app["appId"]
-            for app in sorted(
-                parse_installed_app(response),
-                key=lambda app: cast(str, app["name"]),
-            )
-        }
-        print(apps)
+    def handle_remote_event(self, event: str, response: Any) -> None:
+        """Handle remote events."""
+        if event == ED_INSTALLED_APP_EVENT:
+            apps = {
+                app["name"]: app["appId"]
+                for app in sorted(
+                    parse_installed_app(response),
+                    key=lambda app: cast(str, app["name"]),
+                )
+            }
+            self._app_list = apps
+            _LOG.debug("Installed apps updated: %s", self._app_list)
