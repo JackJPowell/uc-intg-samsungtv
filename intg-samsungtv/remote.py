@@ -94,9 +94,15 @@ class SamsungRemote(Remote):
         self, cmd_id: str, params: dict[str, Any] | None = None
     ) -> StatusCodes:
         """Handle command."""
-        # hold = self.get_int_param("hold", params, 0)
-        delay = self.get_int_param("delay", params, 0)
-        command = params.get("command", "")
+        command = ""
+        delay = 0
+
+        if params:
+            command = params.get("command", "")
+            delay = self.get_int_param("delay", params, 0)
+
+        if command == "":
+            command = f"remote.{cmd_id}"
 
         client = self._device
         res = None
@@ -223,7 +229,7 @@ SAMSUNG_REMOTE_BUTTONS_MAPPING: [DeviceButtonMapping] = [
     {"button": Buttons.HOME, "short_press": {"cmd_id": media_player.Commands.HOME}},
     {
         "button": Buttons.CHANNEL_DOWN,
-        "short_press": {"cmd_id": media_player.Commands.CURSOR_ENTER},
+        "short_press": {"cmd_id": media_player.Commands.CHANNEL_DOWN},
     },
     {
         "button": Buttons.CHANNEL_UP,
