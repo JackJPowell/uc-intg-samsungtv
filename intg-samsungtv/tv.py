@@ -75,6 +75,7 @@ class SamsungTv:
         self._volume_level: float = 0.0
         self._end_of_power_off: datetime | None = None
         self._active_source: str = ""
+        self._power_on_task: asyncio.Task | None = None
 
     @property
     def device_config(self) -> SamsungDevice:
@@ -169,7 +170,7 @@ class SamsungTv:
             _LOG.debug(
                 "[%s] Not starting connect setup (Samsung TV: %s, ConnectTask: %s)",
                 self.log_id,
-                self._samsungtv is None,
+                self._samsungtv is not None,
                 self._connect_task is not None,
             )
 
@@ -211,16 +212,16 @@ class SamsungTv:
         finally:
             _LOG.debug("[%s] Connect setup finished", self.log_id)
 
+        self.events.emit(EVENTS.CONNECTED, self._device.identifier)
+        _LOG.debug("[%s] Connected", self.log_id)
+
         await asyncio.sleep(1)
         await self._start_polling()
         await self._update_app_list()
 
-        self.events.emit(EVENTS.CONNECTED, self._device.identifier)
-        _LOG.debug("[%s] Connected", self.log_id)
-
     async def _connect(self) -> None:
         """Connect to the device."""
-        _LOG.debug("[%s] Connecting to device", self.log_id)
+        _LOG.debug("[%s] Connecting to TVWS device", self.log_id)
         self._samsungtv = SamsungTVWSAsyncRemote(
             host=self._device.address,
             port=8002,
@@ -245,17 +246,28 @@ class SamsungTv:
             await self._stop_polling()
 
         try:
-            if self._samsungtv:
-                await self._samsungtv.close()
             if self._connect_task:
+                _LOG.debug("[%s] Cancelling connect task", self.log_id)
                 self._connect_task.cancel()
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.exception(
-                "[%s] An error occurred while disconnecting: %s", self.log_id, err
+                "[%s] An error occurred while cancelling the connect task: %s", self.log_id, err
+            )
+        finally:
+            self._connect_task = None
+
+        try:
+            if self._samsungtv:
+                _LOG.debug("[%s] Closing SamsungTVWS connection", self.log_id)
+                await self._samsungtv.close()
+        except Exception as err:  # pylint: disable=broad-exception-caught
+            _LOG.exception(
+                "[%s] An error occurred while closing SamsungTVWS connection: %s", self.log_id, err
             )
         finally:
             self._samsungtv = None
-            self._connect_task = None
+
+        _LOG.debug("[%s] Disconnected", self.log_id)
 
     async def close(self) -> None:
         """Close the connection."""
@@ -397,25 +409,34 @@ class SamsungTv:
             power = not self._is_on
 
         if power:
-            await self.close()
-            for i in range(5):
-                _LOG.debug("[%s] Sending magic packet (%s)", self.log_id, i)
-                wakeonlan.send_magic_packet(self._device.mac_address)
-                await asyncio.sleep(6)
-                await self.check_connection_and_reconnect()
-                self.check_power_status()
-                if self._is_on:
-                    break
-
-            if not self._is_on:
-                _LOG.warning("[%s] Unable to wake TV", self.log_id)
-                return
-
-            await self._update_app_list()
+            await self.disconnect()
+            self._power_on_task = asyncio.create_task(self.power_on())
             update["state"] = PowerState.ON
         else:
             await self.send_key("KEY_POWER")
             self._end_of_power_off = datetime.utcnow() + timedelta(seconds=15)
+            self._is_on = False
+            await self.disconnect()
+            update["state"] = PowerState.OFF
+
+        self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
+
+    async def power_on(self) -> None:
+        """Power on the TV."""
+        update = {}
+        for i in range(5):
+            _LOG.debug("[%s] Sending magic packet (%s)", self.log_id, i)
+            wakeonlan.send_magic_packet(self._device.mac_address)
+            await asyncio.sleep(6)
+            await self.check_connection_and_reconnect()
+            self.check_power_status()
+            if self._is_on:
+                update["state"] = PowerState.ON
+                await self._update_app_list()
+                break
+
+        if not self._is_on:
+            _LOG.warning("[%s] Unable to wake TV", self.log_id)
             self._is_on = False
             await self.disconnect()
             update["state"] = PowerState.OFF
@@ -431,19 +452,17 @@ class SamsungTv:
         else:
             samsungtv = self._samsungtv
 
-        if samsungtv is not None:
-            if samsungtv.is_alive():
-                self._is_on = True
-                update["state"] = PowerState.ON
-                _LOG.debug("[%s] Device is alive", self.log_id)
-            else:
-                _LOG.debug(
-                    "[%s] Device is not alive _samsungtv is not None", self.log_id
-                )
-                self._is_on = False
-                update["state"] = PowerState.OFF
+        if samsungtv is not None and samsungtv.is_alive():
+            self._is_on = True
+            update["state"] = PowerState.ON
+            _LOG.debug("[%s] Device is alive", self.log_id)
         else:
-            _LOG.debug("[%s] Device is not alive. _samsungtv is None", self.log_id)
+            _LOG.debug(
+                "[%s] SamsungTVWS Connection is not alive (Samsung TV: %s, ConnectTask: %s)",
+                self.log_id,
+                self._samsungtv is not None,
+                self._connect_task is not None,
+            )
             self._is_on = False
             update["state"] = PowerState.OFF
 
@@ -451,7 +470,6 @@ class SamsungTv:
             self._is_on = False
 
         self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
-
 
     def handle_remote_event(self, event: str, response: Any) -> None:
         """Handle remote events."""
