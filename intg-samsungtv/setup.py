@@ -258,7 +258,7 @@ async def _handle_configuration_mode(
                 _LOG.warning("Could not update device from configuration: %s", choice)
                 return SetupError(error_type=IntegrationSetupError.OTHER)
             _setup_step = SetupSteps.DISCOVER
-            return _user_input_manual
+            return await _handle_discovery()
         case "remove":
             choice = msg.input_values["choice"]
             if not config.devices.remove(choice):
