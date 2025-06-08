@@ -88,9 +88,6 @@ class SamsungMediaPlayer(MediaPlayer):
             "Got %s command request: %s %s", entity.id, cmd_id, params if params else ""
         )
 
-        if cmd_id not in [media_player.Commands.ON, media_player.Commands.TOGGLE]:
-            await self._device.check_connection_and_reconnect()
-
         try:
             match cmd_id:
                 case media_player.Commands.ON:

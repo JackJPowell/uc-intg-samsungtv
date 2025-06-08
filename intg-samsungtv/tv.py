@@ -74,6 +74,7 @@ class SamsungTv:
         self._app_list: dict[str, str] = {}
         self._volume_level: float = 0.0
         self._end_of_power_off: datetime | None = None
+        self._end_of_power_on: datetime | None = None
         self._active_source: str = ""
         self._power_on_task: asyncio.Task | None = None
 
@@ -147,15 +148,19 @@ class SamsungTv:
         )
 
     @property
+    def power_on_in_progress(self) -> bool:
+        """Return if power on has been recently requested."""
+        return (
+            self._end_of_power_on is not None
+            and self._end_of_power_on > datetime.utcnow()
+        )
+
+    @property
     def timeout(self) -> int:
         """Return the timeout for the connection."""
         if self._device.token == "":
             return 30
         return 3
-
-    def update_config(self, device_config: SamsungDevice):
-        """Update the device configuration."""
-        self._device = device_config
 
     async def connect(self) -> None:
         """Establish connection to TV."""
@@ -221,7 +226,11 @@ class SamsungTv:
 
     async def _connect(self) -> None:
         """Connect to the device."""
-        _LOG.debug("[%s] Connecting to TVWS device", self.log_id)
+        _LOG.debug(
+            "[%s] Connecting to TVWS device at IP address: %s",
+            self.log_id,
+            self._device.address,
+        )
         self._samsungtv = SamsungTVWSAsyncRemote(
             host=self._device.address,
             port=8002,
@@ -251,7 +260,9 @@ class SamsungTv:
                 self._connect_task.cancel()
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.exception(
-                "[%s] An error occurred while cancelling the connect task: %s", self.log_id, err
+                "[%s] An error occurred while cancelling the connect task: %s",
+                self.log_id,
+                err,
             )
         finally:
             self._connect_task = None
@@ -262,7 +273,9 @@ class SamsungTv:
                 await self._samsungtv.close()
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.exception(
-                "[%s] An error occurred while closing SamsungTVWS connection: %s", self.log_id, err
+                "[%s] An error occurred while closing SamsungTVWS connection: %s",
+                self.log_id,
+                err,
             )
         finally:
             self._samsungtv = None
@@ -390,7 +403,16 @@ class SamsungTv:
 
     async def send_key(self, key: str) -> None:
         """Send a key to the TV."""
-        await self._samsungtv.send_command(SendRemoteKey.click(key))
+        await self.check_connection_and_reconnect()
+        if self._samsungtv is not None and self._samsungtv.is_alive():
+            await self._samsungtv.send_command(SendRemoteKey.click(key))
+            return
+        _LOG.error(
+            "[%s] Cannot send key '%s', TV is not connected (_samsungtv: %s)",
+            self.log_id,
+            key,
+            self._samsungtv is not None,
+        )
 
     async def _poll_worker(self) -> None:
         await asyncio.sleep(1)
@@ -403,6 +425,11 @@ class SamsungTv:
         if self.power_off_in_progress:
             _LOG.debug("TV is powering off, not sending power command")
             return
+
+        if self.power_on_in_progress:
+            _LOG.debug("TV is powering on, not sending power command")
+            return
+
         update = {}
         if power is None:
             self.check_power_status()
@@ -410,6 +437,7 @@ class SamsungTv:
 
         if power:
             await self.disconnect()
+            self._end_of_power_on = datetime.utcnow() + timedelta(seconds=31)
             self._power_on_task = asyncio.create_task(self.power_on())
             update["state"] = PowerState.ON
         else:
