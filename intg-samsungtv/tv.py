@@ -422,24 +422,31 @@ class SamsungTv:
 
     async def toggle_power(self, power: bool | None = None) -> None:
         """Handle power state change."""
+        update = {}
         if self.power_off_in_progress:
             _LOG.debug("TV is powering off, not sending power command")
+            update["state"] = PowerState.OFF
+            self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
             return
 
         if self.power_on_in_progress:
             _LOG.debug("TV is powering on, not sending power command")
             return
 
-        update = {}
         if power is None:
             self.check_power_status()
             power = not self._is_on
 
         if power:
-            await self.disconnect()
-            self._end_of_power_on = datetime.utcnow() + timedelta(seconds=31)
-            self._power_on_task = asyncio.create_task(self.power_on())
-            update["state"] = PowerState.ON
+            if self._samsungtv is not None and self._samsungtv.is_alive():
+                await self.check_connection_and_reconnect()
+                update["state"] = PowerState.ON
+            else:
+                await self.disconnect()
+                self._end_of_power_on = datetime.utcnow() + timedelta(seconds=31)
+                self._power_on_task = asyncio.create_task(self.power_on())
+            self._is_on = True
+            
         else:
             await self.send_key("KEY_POWER")
             self._end_of_power_off = datetime.utcnow() + timedelta(seconds=15)
@@ -460,7 +467,6 @@ class SamsungTv:
             self.check_power_status()
             if self._is_on:
                 update["state"] = PowerState.ON
-                await self._update_app_list()
                 break
 
         if not self._is_on:
