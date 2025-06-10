@@ -446,7 +446,6 @@ class SamsungTv:
                 self._end_of_power_on = datetime.utcnow() + timedelta(seconds=31)
                 self._power_on_task = asyncio.create_task(self.power_on())
             self._is_on = True
-            
         else:
             await self.send_key("KEY_POWER")
             self._end_of_power_off = datetime.utcnow() + timedelta(seconds=15)
@@ -517,3 +516,10 @@ class SamsungTv:
             }
             self._app_list = apps
             _LOG.debug("Installed apps updated: %s", self._app_list)
+
+    def get_device_info(self) -> None:
+        """Get REST info from the TV."""
+        tv = SamsungTVWS(self.device_config.address)
+        info = tv.rest_device_info()
+        _LOG.debug("REST info: %s", info)
+        tv.close()

@@ -195,6 +195,8 @@ class SamsungRemote(Remote):
                         await client.send_key("KEY_HDMI3")
                     case SimpleCommands.HDMI_4:
                         await client.send_key("KEY_HDMI4")
+                    case SimpleCommands.DEVICE_INFO:
+                        client.get_device_info()
                 res = StatusCodes.OK
             elif cmd_id == Commands.SEND_CMD_SEQUENCE:
                 commands = params.get("sequence", [])
@@ -223,6 +225,7 @@ SAMSUNG_REMOTE_SIMPLE_COMMANDS = [
     SimpleCommands.HDMI_2.value,
     SimpleCommands.HDMI_3.value,
     SimpleCommands.HDMI_4.value,
+    SimpleCommands.DEVICE_INFO.value,
 ]
 SAMSUNG_REMOTE_BUTTONS_MAPPING: [DeviceButtonMapping] = [
     {"button": Buttons.BACK, "short_press": {"cmd_id": media_player.Commands.BACK}},
