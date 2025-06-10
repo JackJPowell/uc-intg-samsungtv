@@ -5,7 +5,7 @@ from ucapi.media_player import States as MediaStates
 
 
 class SimpleCommands(str, Enum):
-    """Additional simple commands of the Apple TV not covered by media-player features."""
+    """Additional simple commands of the Samsung TV not covered by media-player features."""
 
     CH_LIST = "CH_LIST"
     EXIT = "EXIT"
@@ -14,10 +14,11 @@ class SimpleCommands(str, Enum):
     HDMI_2 = "HDMI_2"
     HDMI_3 = "HDMI_3"
     HDMI_4 = "HDMI_4"
+    DEVICE_INFO = "DEVICE_INFO"
 
 
 class States(IntEnum):
-    """State of a connected AVR."""
+    """State of a connected Samsung TV."""
 
     UNKNOWN = 0
     UNAVAILABLE = 1
