@@ -330,7 +330,7 @@ async def _handle_creation(msg: UserDataResponse) -> RequestUserInput | SetupErr
     :param msg: response data from the requested user data
     :return: the setup action on how to continue
     """
-
+    reports_power_state = False
     ip = msg.input_values["ip"]
     if ip is not None and ip != "":
         _LOG.debug("Connecting to Samsung TV at %s", ip)
@@ -339,10 +339,13 @@ async def _handle_creation(msg: UserDataResponse) -> RequestUserInput | SetupErr
             ip,
             port=8002,
             timeout=30,
-            name="Unfolded Circle Remote",
+            name="Unfolded Circle",
         )
 
         info = tv.rest_device_info()
+
+        if info and info.get("PowerState", None) is not None:
+            reports_power_state = True
 
         _LOG.info("Samsung TV info: %s", info)
 
@@ -362,12 +365,13 @@ async def _handle_creation(msg: UserDataResponse) -> RequestUserInput | SetupErr
         mac_address=info.get("device").get(
             "wifiMac"
         ),  # Both wired and wireless use the same key
+        reports_power_state=reports_power_state,
     )
     tv.close()
     config.devices.add_or_update(device)
 
     await asyncio.sleep(1)
 
-    _LOG.info("Setup successfully completed for %s", device.name)
+    _LOG.info("Setup successfully completed for %s [%s]", device.name, device)
 
     return SetupComplete()

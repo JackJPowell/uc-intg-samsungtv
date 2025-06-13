@@ -48,6 +48,8 @@ class SamsungDevice:
     """IP Address of device"""
     mac_address: str | None = None
     """MAC Address of device"""
+    reports_power_state: bool = False
+    """True if the device supports power state reporting."""
 
 
 class _EnhancedJSONEncoder(json.JSONEncoder):
@@ -121,6 +123,7 @@ class Devices:
                 item.name = device.name
                 item.token = device.token
                 item.mac_address = device.mac_address
+                item.reports_power_state = device.reports_power_state
                 return self.store()
         return False
 
@@ -181,6 +184,7 @@ class Devices:
                     item.get("token"),
                     item.get("address"),
                     item.get("mac_address"),
+                    item.get("reports_power_state"),
                 )
                 self._config.append(device)
             return True

@@ -50,6 +50,7 @@ class PowerState(str, Enum):
 
     OFF = "OFF"
     ON = "ON"
+    STANDBY = "STANDBY"
 
 
 class SamsungTv:
@@ -465,6 +466,28 @@ class SamsungTv:
             await self.check_connection_and_reconnect()
             self.check_power_status()
             if self._is_on:
+                if self.device_config.reports_power_state:
+                    _LOG.debug(
+                        "[%s] Device reports power state. Checking...", self.log_id
+                    )
+                    try:
+                        power_state = self.get_device_info().get("PowerState", None)
+                    except Exception as err:  # pylint: disable=broad-exception-caught
+                        _LOG.error(
+                            "[%s] Error getting power state: %s", self.log_id, err
+                        )
+                        power_state = "off"
+                    _LOG.debug(
+                        "[%s] Power state was detected as: %s", self.log_id, power_state
+                    )
+                    if power_state == "standby":
+                        _LOG.debug(
+                            "[%s] Device is in standby mode. Sending Power key...",
+                            self.log_id,
+                        )
+                        await self.send_key("KEY_POWER")
+                else:
+                    _LOG.debug("[%s] Device does not report power state", self.log_id)
                 update["state"] = PowerState.ON
                 break
 
@@ -517,9 +540,15 @@ class SamsungTv:
             self._app_list = apps
             _LOG.debug("Installed apps updated: %s", self._app_list)
 
-    def get_device_info(self) -> None:
+    def get_device_info(self) -> dict[str, Any]:
         """Get REST info from the TV."""
-        tv = SamsungTVWS(self.device_config.address)
+        tv = SamsungTVWS(
+            self.device_config.address,
+            port=8002,
+            timeout=30,
+            name="Unfolded Circle",
+        )
         info = tv.rest_device_info()
         _LOG.debug("REST info: %s", info)
         tv.close()
+        return info
