@@ -229,9 +229,9 @@ async def on_device_update(entity_id: str, update: dict[str, Any] | None) -> Non
     :param entity_id: Device media-player entity identifier
     :param update: dictionary containing the updated properties or None
     """
-    attributes = {}
     target_entity = None
     for identifier in _entities_from_device_id(entity_id):
+        attributes = {}
         configured_entity = api.available_entities.get(identifier)
         if configured_entity is None:
             return

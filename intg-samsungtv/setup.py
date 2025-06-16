@@ -252,6 +252,8 @@ async def _handle_configuration_mode(
     match action:
         case "add":
             _cfg_add_device = True
+            _setup_step = SetupSteps.DISCOVER
+            return await _handle_discovery()
         case "update":
             choice = msg.input_values["choice"]
             if not config.devices.remove(choice):
@@ -344,7 +346,7 @@ async def _handle_creation(msg: UserDataResponse) -> RequestUserInput | SetupErr
 
         info = tv.rest_device_info()
 
-        if info and info.get("PowerState", None) is not None:
+        if info and info.get("device", None).get("PowerState", None) is not None:
             reports_power_state = True
 
         _LOG.info("Samsung TV info: %s", info)

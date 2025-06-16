@@ -39,14 +39,13 @@ class SamsungRemote(Remote):
         _LOG.debug("Samsung Remote init")
         entity_id = create_entity_id(config_device.identifier, EntityTypes.REMOTE)
         features = [Features.SEND_CMD, Features.ON_OFF, Features.TOGGLE]
-        attributes = {
-            Attributes.STATE: SAMSUNG_REMOTE_STATE_MAPPING.get(device.state),
-        }
         super().__init__(
             entity_id,
             f"{config_device.name} Remote",
             features,
-            attributes,
+            attributes={
+                Attributes.STATE: device.state,
+            },
             simple_commands=SAMSUNG_REMOTE_SIMPLE_COMMANDS,
             button_mapping=SAMSUNG_REMOTE_BUTTONS_MAPPING,
             ui_pages=SAMSUNG_REMOTE_UI_PAGES,
