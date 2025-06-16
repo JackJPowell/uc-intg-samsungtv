@@ -270,6 +270,8 @@ async def _handle_configuration_mode(
             return SetupComplete()
         case "reset":
             config.devices.clear()  # triggers device instance removal
+            _setup_step = SetupSteps.DISCOVER
+            return await _handle_discovery()
         case _:
             _LOG.error("Invalid configuration action: %s", action)
             return SetupError(error_type=IntegrationSetupError.OTHER)
