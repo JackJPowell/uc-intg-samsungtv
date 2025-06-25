@@ -63,9 +63,7 @@ class SamsungRemote(Remote):
             return int(float(value))
         return default
 
-    async def command(
-        self, cmd_id: str, params: dict[str, Any] | None = None
-    ) -> StatusCodes:
+    async def command(self, cmd_id: str, params: dict[str, Any] | None = None) -> StatusCodes:
         """
         Remote entity command handler.
 
@@ -160,14 +158,6 @@ class SamsungRemote(Remote):
                         await client.send_key("KEY_8")
                     case media_player.Commands.DIGIT_9:
                         await client.send_key("KEY_9")
-                    case media_player.Commands.FUNCTION_RED:
-                        await client.send_key("KEY_RED")
-                    case media_player.Commands.FUNCTION_GREEN:
-                        await client.send_key("KEY_GREEN")
-                    case media_player.Commands.FUNCTION_YELLOW:
-                        await client.send_key("KEY_YELLOW")
-                    case media_player.Commands.FUNCTION_BLUE:
-                        await client.send_key("KEY_BLUE")
                     case media_player.Commands.HOME:
                         await client.send_key("KEY_HOME")
                     case media_player.Commands.MENU:
@@ -183,7 +173,7 @@ class SamsungRemote(Remote):
                     case media_player.Commands.SETTINGS:
                         await client.send_key("KEY_TOOLS")
                     case SimpleCommands.EXIT:
-                        await client.send_key("KEY_MENU")
+                        await client.send_key("KEY_EXIT")
                     case SimpleCommands.CH_LIST:
                         await client.send_key("KEY_CH_LIST")
                     case SimpleCommands.HDMI_1:
@@ -194,6 +184,14 @@ class SamsungRemote(Remote):
                         await client.send_key("KEY_HDMI3")
                     case SimpleCommands.HDMI_4:
                         await client.send_key("KEY_HDMI4")
+                    case SimpleCommands.RED:
+                        await client.send_key("KEY_RED")
+                    case SimpleCommands.GREEN:
+                        await client.send_key("KEY_GREEN")
+                    case SimpleCommands.YELLOW:
+                        await client.send_key("KEY_YELLOW")
+                    case SimpleCommands.BLUE:
+                        await client.send_key("KEY_BLUE")
                     case SimpleCommands.DEVICE_INFO:
                         client.get_device_info()
                 res = StatusCodes.OK
