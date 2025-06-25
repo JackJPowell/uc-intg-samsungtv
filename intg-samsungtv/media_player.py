@@ -34,6 +34,9 @@ features = [
     media_player.Features.MENU,
     media_player.Features.NUMPAD,
     media_player.Features.CHANNEL_SWITCHER,
+    media_player.Features.GUIDE,
+    media_player.Features.INFO,
+    media_player.Features.SETTINGS,
 ]
 
 
@@ -66,6 +69,10 @@ class SamsungMediaPlayer(MediaPlayer):
                     SimpleCommands.HDMI_2.value,
                     SimpleCommands.HDMI_3.value,
                     SimpleCommands.HDMI_4.value,
+                    SimpleCommands.RED.value,
+                    SimpleCommands.GREEN.value,
+                    SimpleCommands.YELLOW.value,
+                    SimpleCommands.BLUE.value,
                 ],
             },
             cmd_handler=self.media_player_cmd_handler,
@@ -85,9 +92,7 @@ class SamsungMediaPlayer(MediaPlayer):
         :param params: optional command parameters
         :return: status code of the command. StatusCodes.OK if the command succeeded.
         """
-        _LOG.info(
-            "Got %s command request: %s %s", entity.id, cmd_id, params if params else ""
-        )
+        _LOG.info("Got %s command request: %s %s", entity.id, cmd_id, params if params else "")
 
         try:
             match cmd_id:
@@ -137,14 +142,6 @@ class SamsungMediaPlayer(MediaPlayer):
                     await self._device.send_key("KEY_8")
                 case media_player.Commands.DIGIT_9:
                     await self._device.send_key("KEY_9")
-                case media_player.Commands.FUNCTION_RED:
-                    await self._device.send_key("KEY_RED")
-                case media_player.Commands.FUNCTION_GREEN:
-                    await self._device.send_key("KEY_GREEN")
-                case media_player.Commands.FUNCTION_YELLOW:
-                    await self._device.send_key("KEY_YELLOW")
-                case media_player.Commands.FUNCTION_BLUE:
-                    await self._device.send_key("KEY_BLUE")
                 case media_player.Commands.HOME:
                     await self._device.send_key("KEY_HOME")
                 case media_player.Commands.MENU:
@@ -161,13 +158,22 @@ class SamsungMediaPlayer(MediaPlayer):
                     await self._device.send_key("KEY_TOOLS")
                 # --- simple commands ---
                 case SimpleCommands.EXIT:
-                    await self._device.send_key("KEY_MENU")
+                    await self._device.send_key("KEY_EXIT")
                 case SimpleCommands.CH_LIST:
                     await self._device.send_key("KEY_CH_LIST")
+                case SimpleCommands.RED:
+                    await self._device.send_key("KEY_RED")
+                case SimpleCommands.GREEN:
+                    await self._device.send_key("KEY_GREEN")
+                case SimpleCommands.YELLOW:
+                    await self._device.send_key("KEY_YELLOW")
+                case SimpleCommands.BLUE:
+                    await self._device.send_key("KEY_BLUE")
         except Exception as ex:  # pylint: disable=broad-except
             _LOG.error("Error executing command %s: %s", cmd_id, ex)
             return ucapi.StatusCodes.TIMEOUT
         return ucapi.StatusCodes.OK
+
 
 def _get_cmd_param(name: str, params: dict[str, Any] | None) -> str | bool | None:
     if params is None:

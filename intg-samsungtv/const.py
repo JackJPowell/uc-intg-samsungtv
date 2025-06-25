@@ -7,14 +7,18 @@ from ucapi.media_player import States as MediaStates
 class SimpleCommands(str, Enum):
     """Additional simple commands of the Samsung TV not covered by media-player features."""
 
-    CH_LIST = "CH_LIST"
-    EXIT = "EXIT"
-    SLEEP = "SLEEP"
-    HDMI_1 = "HDMI_1"
-    HDMI_2 = "HDMI_2"
-    HDMI_3 = "HDMI_3"
-    HDMI_4 = "HDMI_4"
-    DEVICE_INFO = "DEVICE_INFO"
+    CH_LIST = "Channel List"
+    EXIT = "Exit"
+    SLEEP = "Sleep"
+    HDMI_1 = "HDMI 1"
+    HDMI_2 = "HDMI 2"
+    HDMI_3 = "HDMI 3"
+    HDMI_4 = "HDMI 4"
+    DEVICE_INFO = "Device Info"
+    RED = "Red"
+    GREEN = "Green"
+    YELLOW = "Yellow"
+    BLUE = "Blue"
 
 
 class States(IntEnum):
