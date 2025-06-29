@@ -93,14 +93,10 @@ async def on_subscribe_entities(entity_ids: list[str]) -> None:
             if device_id in _configured_devices:
                 device = _configured_devices[device_id]
                 _LOG.info("Add '%s' to configured devices and connect", device.name)
-                if device.is_on is None:
+                if device.power_state is None:
                     state = media_player.States.UNAVAILABLE
                 else:
-                    state = (
-                        media_player.States.ON
-                        if device.is_on
-                        else media_player.States.OFF
-                    )
+                    state = _device_state_to_media_player_state(device.power_state)
                 api.configured_entities.update_attributes(
                     entity_id, {media_player.Attributes.STATE: state}
                 )
@@ -214,6 +210,8 @@ def _device_state_to_media_player_state(
     match device_state:
         case tv.PowerState.ON:
             state = media_player.States.ON
+        case tv.PowerState.STANDBY:
+            state = media_player.States.STANDBY
         case tv.PowerState.OFF:
             state = media_player.States.OFF
         case _:
