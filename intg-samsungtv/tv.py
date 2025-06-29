@@ -8,7 +8,7 @@ import contextlib
 import logging
 from asyncio import AbstractEventLoop
 from datetime import datetime, timedelta
-from enum import Enum, IntEnum
+from enum import IntEnum, StrEnum
 from typing import Any, ParamSpec, TypeVar, cast
 
 import aiohttp
@@ -45,7 +45,7 @@ _SamsungTvT = TypeVar("_SamsungTvT", bound="SamsungTv")
 _P = ParamSpec("_P")
 
 
-class PowerState(str, Enum):
+class PowerState(StrEnum):
     """Playback state for companion protocol."""
 
     OFF = "OFF"
@@ -62,7 +62,6 @@ class SamsungTv:
         """Create instance."""
         self._loop: AbstractEventLoop = loop or asyncio.get_running_loop()
         self.events = AsyncIOEventEmitter(self._loop)
-        self._is_on: bool = False
         self._is_connected: bool = False
         self._samsungtv: SamsungTVWS | None = None
         self._samsungtv_remote: SamsungTVWSAsyncRemote | None = None
@@ -79,6 +78,7 @@ class SamsungTv:
         self._end_of_power_on: datetime | None = None
         self._active_source: str = ""
         self._power_on_task: asyncio.Task | None = None
+        self._power_state: PowerState | None = None
 
     @property
     def device_config(self) -> SamsungDevice:
@@ -108,16 +108,11 @@ class SamsungTv:
         return self._device.address
 
     @property
-    def is_on(self) -> bool | None:
-        """Whether the Samsung TV is on or off. Returns None if not connected."""
-        return self._is_on
-
-    @property
     def state(self) -> PowerState | None:
         """Return the device state."""
-        if self.is_on:
-            return PowerState.ON
-        return PowerState.OFF
+        if self._power_state is None:
+            return PowerState.OFF
+        return self._power_state
 
     @property
     def is_connected(self) -> bool:
@@ -163,6 +158,13 @@ class SamsungTv:
         )
 
     @property
+    def power_state(self) -> PowerState | None:
+        """Return the current power state."""
+        if self._power_state is None:
+            return PowerState.OFF
+        return self._power_state
+
+    @property
     def timeout(self) -> int:
         """Return the timeout for the connection."""
         if self._device.token == "":
@@ -205,7 +207,6 @@ class SamsungTv:
 
             if self._samsungtv is not None and self._samsungtv.is_alive():
                 _LOG.debug("[%s] Device is alive", self.log_id)
-                # self._is_on = True
                 self.events.emit(
                     EVENTS.UPDATE, self._device.identifier, {"state": PowerState.ON}
                 )
@@ -420,7 +421,7 @@ class SamsungTv:
     async def _poll_worker(self) -> None:
         await asyncio.sleep(1)
         while True:
-            self.check_power_status()
+            self.get_power_state()
             await asyncio.sleep(5)
 
     async def toggle_power(self, power: bool | None = None) -> None:
@@ -430,7 +431,7 @@ class SamsungTv:
             _LOG.debug("TV is powering off, attempting to send power command")
             await self.send_key("KEY_POWER")
             self._end_of_power_off = None
-            self._power_on_task = asyncio.create_task(self.power_on())
+            self._power_on_task = asyncio.create_task(self.power_on_wol())
             update["state"] = PowerState.ON
             self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
             return
@@ -440,56 +441,46 @@ class SamsungTv:
             return
 
         if power is None:
-            self.check_power_status()
-            power = not self._is_on
+            self.get_power_state()
+            power = self._power_state in [PowerState.OFF, PowerState.STANDBY]
 
         if power:
-            if self._samsungtv is not None and self._samsungtv.is_alive():
-                update["state"] = PowerState.ON
+            if self.device_config.reports_power_state:
+                if self._power_state == PowerState.ON:
+                    _LOG.debug("[%s] Device is already ON", self.log_id)
+                    self._power_state = PowerState.ON
+                elif self._power_state == PowerState.STANDBY:
+                    _LOG.debug("[%s] Device is in standby mode", self.log_id)
+                    await self.send_key("KEY_POWER")
+                    self._power_state = PowerState.ON
+                else:
+                    self._end_of_power_on = datetime.utcnow() + timedelta(seconds=17)
+                    self._power_on_task = asyncio.create_task(self.power_on_wol())
+                    self._power_state = PowerState.ON
             else:
-                self._end_of_power_on = datetime.utcnow() + timedelta(seconds=15)
-                self._power_on_task = asyncio.create_task(self.power_on())
-            self._is_on = True
+                if self._samsungtv is not None and self._samsungtv.is_alive():
+                    _LOG.debug("[%s] Device is already ON", self.log_id)
+                    self._power_state = PowerState.ON
+                else:
+                    self._end_of_power_on = datetime.utcnow() + timedelta(seconds=17)
+                    self._power_on_task = asyncio.create_task(self.power_on_wol())
+                    self._power_state = PowerState.ON
         else:
             await self.send_key("KEY_POWER")
             self._end_of_power_off = datetime.utcnow() + timedelta(seconds=65)
-            self._is_on = False
-            update["state"] = PowerState.OFF
+            self._power_state = PowerState.OFF
 
+        update["state"] = self._power_state
         self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
 
-    async def power_on(self) -> None:
+    async def power_on_wol(self) -> None:
         """Power on the TV."""
         update = {}
-        for i in range(7):
+        for i in range(8):
             _LOG.debug("[%s] Sending magic packet (%s)", self.log_id, i)
             wakeonlan.send_magic_packet(self._device.mac_address)
             await asyncio.sleep(2)
-            self.check_power_status()
-            if self.is_connected:
-                if self.device_config.reports_power_state:
-                    _LOG.debug(
-                        "[%s] Device reports power state. Checking...", self.log_id
-                    )
-                    try:
-                        power_state = self.get_device_info().get("PowerState", None)
-                    except Exception as err:  # pylint: disable=broad-exception-caught
-                        _LOG.error(
-                            "[%s] Error getting power state: %s", self.log_id, err
-                        )
-                        power_state = "off"
-                    _LOG.debug(
-                        "[%s] Power state was detected as: %s", self.log_id, power_state
-                    )
-                    if power_state == "standby":
-                        _LOG.debug(
-                            "[%s] Device is in standby mode. Sending Power key...",
-                            self.log_id,
-                        )
-                        await self.send_key("KEY_POWER")
-                else:
-                    _LOG.debug("[%s] Device does not report power state", self.log_id)
-                update["state"] = PowerState.ON
+            if self.power_state == PowerState.ON:
                 break
             else:
                 _LOG.debug("[%s] Device is not alive yet", self.log_id)
@@ -497,12 +488,12 @@ class SamsungTv:
 
         if not self.is_connected:
             _LOG.warning("[%s] Unable to wake TV", self.log_id)
-            self._is_on = False
-            update["state"] = PowerState.OFF
+            self._power_state = PowerState.OFF
 
+        update["state"] = self._power_state
         self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
 
-    def check_power_status(self) -> None:
+    def get_power_state(self) -> PowerState:
         """Return the power status of the device."""
         update = {}
         samsungtv = None
@@ -511,26 +502,38 @@ class SamsungTv:
         else:
             samsungtv = self._samsungtv
 
-        if samsungtv is not None and samsungtv.is_alive():
-            if self.power_off_in_progress:
-                self._is_on = False
-                _LOG.debug("[%s] Device is alive", self.log_id)
-                update["state"] = PowerState.OFF
-            else:
-                self._is_on = True
-                update["state"] = PowerState.ON
-                _LOG.debug("[%s] Device is alive", self.log_id)
-                self._end_of_power_on = None
-        else:
-            _LOG.debug(
-                "[%s] SamsungTVWS Connection is not alive (Samsung TV: %s, ConnectTask: %s)",
-                self.log_id,
-                self._samsungtv is not None,
-                self._connect_task is not None,
+        if self.device_config.reports_power_state:
+            power_state = (
+                self.get_device_info().get("device", None).get("PowerState", None)
             )
-            self._is_on = False
-            update["state"] = PowerState.OFF
+            match power_state:
+                case "on":
+                    self._power_state = PowerState.ON
+                case "standby":
+                    self._power_state = PowerState.STANDBY
+                case "off":
+                    self._power_state = PowerState.OFF
+                case _:
+                    self._power_state = PowerState.OFF
+        else:
+            if samsungtv is not None and samsungtv.is_alive():
+                if self.power_off_in_progress:
+                    self._power_state = PowerState.OFF
+                    _LOG.debug("[%s] Device is alive", self.log_id)
+                else:
+                    self._power_state = PowerState.ON
+                    _LOG.debug("[%s] Device is alive", self.log_id)
+                    self._end_of_power_on = None
+            else:
+                _LOG.debug(
+                    "[%s] SamsungTVWS Connection is not alive (Samsung TV: %s, ConnectTask: %s)",
+                    self.log_id,
+                    self._samsungtv is not None,
+                    self._connect_task is not None,
+                )
+                self._power_state = PowerState.OFF
 
+        update["state"] = self._power_state
         self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
 
     def handle_remote_event(self, event: str, response: Any) -> None:
@@ -548,13 +551,20 @@ class SamsungTv:
 
     def get_device_info(self) -> dict[str, Any]:
         """Get REST info from the TV."""
-        tv = SamsungTVWS(
-            self.device_config.address,
-            port=8002,
-            timeout=30,
-            name="Unfolded Circle",
-        )
-        info = tv.rest_device_info()
-        _LOG.debug("REST info: %s", info)
-        tv.close()
+        try:
+            tv = SamsungTVWS(
+                self.device_config.address,
+                port=8002,
+                timeout=2,
+                name="Unfolded Circle",
+            )
+            info = tv.rest_device_info()
+            _LOG.debug("REST info: %s", info)
+            tv.close()
+        except Exception:  # pylint: disable=broad-exception-caught
+            _LOG.debug(
+                "[%s] Unable to retreive rest info. TV may be offline", self.log_id
+            )
+            tv.close()
+            info = {"device": {"PowerState": "off"}}
         return info
