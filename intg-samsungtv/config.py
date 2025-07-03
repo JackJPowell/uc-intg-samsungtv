@@ -50,6 +50,8 @@ class SamsungDevice:
     """MAC Address of device"""
     reports_power_state: bool = False
     """True if the device supports power state reporting."""
+    supports_art_mode: bool = False
+    """True if the device supports art mode."""
 
 
 class _EnhancedJSONEncoder(json.JSONEncoder):
@@ -124,6 +126,7 @@ class Devices:
                 item.token = device.token
                 item.mac_address = device.mac_address
                 item.reports_power_state = device.reports_power_state
+                item.supports_art_mode = device.supports_art_mode
                 return self.store()
         return False
 
@@ -185,6 +188,7 @@ class Devices:
                     item.get("address"),
                     item.get("mac_address"),
                     item.get("reports_power_state"),
+                    item.get("supports_art_mode", False),
                 )
                 self._config.append(device)
             return True

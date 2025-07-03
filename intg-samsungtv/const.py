@@ -15,10 +15,12 @@ class SimpleCommands(str, Enum):
     HDMI_3 = "HDMI 3"
     HDMI_4 = "HDMI 4"
     DEVICE_INFO = "Device Info"
+    ART_INFO = "Art Info"
     RED = "Red"
     GREEN = "Green"
     YELLOW = "Yellow"
     BLUE = "Blue"
+    ART_MODE = "Toggle Art Mode"
 
 
 class States(IntEnum):

@@ -92,7 +92,9 @@ class SamsungMediaPlayer(MediaPlayer):
         :param params: optional command parameters
         :return: status code of the command. StatusCodes.OK if the command succeeded.
         """
-        _LOG.info("Got %s command request: %s %s", entity.id, cmd_id, params if params else "")
+        _LOG.info(
+            "Got %s command request: %s %s", entity.id, cmd_id, params if params else ""
+        )
 
         try:
             match cmd_id:
@@ -169,6 +171,10 @@ class SamsungMediaPlayer(MediaPlayer):
                     await self._device.send_key("KEY_YELLOW")
                 case SimpleCommands.BLUE:
                     await self._device.send_key("KEY_BLUE")
+                case SimpleCommands.ART_INFO:
+                    self._device.get_art_info()
+                case SimpleCommands.ART_MODE:
+                    self._device.toggle_art_mode()
         except Exception as ex:  # pylint: disable=broad-except
             _LOG.error("Error executing command %s: %s", cmd_id, ex)
             return ucapi.StatusCodes.TIMEOUT

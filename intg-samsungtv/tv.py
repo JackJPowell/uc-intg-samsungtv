@@ -446,17 +446,29 @@ class SamsungTv:
 
         if power:
             if self.device_config.reports_power_state:
-                if self._power_state == PowerState.ON:
-                    _LOG.debug("[%s] Device is already ON", self.log_id)
-                    self._power_state = PowerState.ON
-                elif self._power_state == PowerState.STANDBY:
-                    _LOG.debug("[%s] Device is in standby mode", self.log_id)
-                    await self.send_key("KEY_POWER")
-                    self._power_state = PowerState.ON
+                if self.device_config.supports_art_mode:
+                    rest = RestTV(self.device_config)
+                    in_art_mode = rest.tv.art().get_artmode()
+                    _LOG.debug(
+                        "[%s] Device is in art mode: %s", self.log_id, in_art_mode
+                    )
+                    if in_art_mode:
+                        rest.tv.art().set_artmode(False)
+                        rest.close()
                 else:
-                    self._end_of_power_on = datetime.utcnow() + timedelta(seconds=17)
-                    self._power_on_task = asyncio.create_task(self.power_on_wol())
-                    self._power_state = PowerState.ON
+                    if self._power_state == PowerState.ON:
+                        _LOG.debug("[%s] Device is already ON", self.log_id)
+                        self._power_state = PowerState.ON
+                    elif self._power_state == PowerState.STANDBY:
+                        _LOG.debug("[%s] Device is in standby mode", self.log_id)
+                        await self.send_key("KEY_POWER")
+                        self._power_state = PowerState.ON
+                    else:
+                        self._end_of_power_on = datetime.utcnow() + timedelta(
+                            seconds=17
+                        )
+                        self._power_on_task = asyncio.create_task(self.power_on_wol())
+                        self._power_state = PowerState.ON
             else:
                 if self._samsungtv is not None and self._samsungtv.is_alive():
                     _LOG.debug("[%s] Device is already ON", self.log_id)
@@ -552,19 +564,79 @@ class SamsungTv:
     def get_device_info(self) -> dict[str, Any]:
         """Get REST info from the TV."""
         try:
-            tv = SamsungTVWS(
-                self.device_config.address,
-                port=8002,
-                timeout=2,
-                name="Unfolded Circle",
-            )
-            info = tv.rest_device_info()
+            rest = RestTV(self.device_config)
+            info = rest.tv.rest_device_info()
             _LOG.debug("REST info: %s", info)
-            tv.close()
+            rest.close()
         except Exception:  # pylint: disable=broad-exception-caught
             _LOG.debug(
                 "[%s] Unable to retreive rest info. TV may be offline", self.log_id
             )
-            tv.close()
+            rest.close()
             info = {"device": {"PowerState": "off"}}
         return info
+
+    def get_art_info(self) -> dict[str, Any]:
+        """Get ART info from the TV."""
+        try:
+            rest = RestTV(self.device_config)
+
+            supported = rest.tv.art().supported()
+            _LOG.debug("Art Supported: %s", supported)
+            if supported:
+                _LOG.debug("Art Mode: %s", rest.tv.art().get_artmode())
+                _LOG.debug("Art Available: %s", rest.tv.art().available())
+                _LOG.debug("Art Current: %s", rest.tv.art().get_current())
+            rest.close()
+        except Exception as ex:  # pylint: disable=broad-exception-caught
+            _LOG.debug(
+                "[%s] Unable to retreive art info. TV may be offline %s",
+                self.log_id,
+                ex,
+            )
+            rest.close()
+        return
+
+    def toggle_art_mode(self) -> None:
+        """Toggle ART info from the TV."""
+        try:
+            rest = RestTV(self.device_config)
+
+            supported = rest.tv.art().supported()
+            _LOG.debug("Art Supported: %s", supported)
+            in_art_mode = rest.tv.art().get_artmode()
+            _LOG.debug("[%s] Device is in art mode: %s", self.log_id, in_art_mode)
+            if in_art_mode:
+                rest.tv.art().set_artmode(False)
+            else:
+                rest.tv.art().set_artmode(True)
+            rest.close()
+        except Exception as ex:  # pylint: disable=broad-exception-caught
+            _LOG.debug(
+                "[%s] Unable to retreive art info. TV may be offline %s",
+                self.log_id,
+                ex,
+            )
+            rest.close()
+        return
+
+
+class RestTV:
+    """Representing an Samsung TV Device with REST API."""
+
+    def __init__(
+        self,
+        device_config: SamsungDevice,
+    ) -> SamsungTVWS:
+        """Create instance."""
+        self.tv = SamsungTVWS(
+            device_config.address,
+            port=8002,
+            timeout=2,
+            name="Unfolded Circle",
+        )
+
+    async def close(self) -> None:
+        """Get REST info from the TV."""
+        self.tv.close()
+        return
