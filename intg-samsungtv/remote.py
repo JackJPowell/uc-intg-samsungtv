@@ -63,7 +63,9 @@ class SamsungRemote(Remote):
             return int(float(value))
         return default
 
-    async def command(self, cmd_id: str, params: dict[str, Any] | None = None) -> StatusCodes:
+    async def command(
+        self, cmd_id: str, params: dict[str, Any] | None = None
+    ) -> StatusCodes:
         """
         Remote entity command handler.
 
@@ -194,6 +196,10 @@ class SamsungRemote(Remote):
                         await client.send_key("KEY_BLUE")
                     case SimpleCommands.DEVICE_INFO:
                         client.get_device_info()
+                    case SimpleCommands.ART_INFO:
+                        client.get_art_info()
+                    case SimpleCommands.ART_MODE:
+                        client.toggle_art_mode()
                 res = StatusCodes.OK
             elif cmd_id == Commands.SEND_CMD_SEQUENCE:
                 commands = params.get("sequence", [])
@@ -223,6 +229,8 @@ SAMSUNG_REMOTE_SIMPLE_COMMANDS = [
     SimpleCommands.HDMI_3.value,
     SimpleCommands.HDMI_4.value,
     SimpleCommands.DEVICE_INFO.value,
+    SimpleCommands.ART_INFO.value,
+    SimpleCommands.ART_MODE.value,
 ]
 SAMSUNG_REMOTE_BUTTONS_MAPPING: [DeviceButtonMapping] = [
     {"button": Buttons.BACK, "short_press": {"cmd_id": media_player.Commands.BACK}},
@@ -489,6 +497,19 @@ SAMSUNG_REMOTE_UI_PAGES = [
                 },
                 "icon": "uc:mute",
                 "location": {"x": 1, "y": 5},
+                "size": {"height": 1, "width": 2},
+                "type": "icon",
+            },
+            {
+                "command": {
+                    "cmd_id": "remote.send",
+                    "params": {
+                        "command": SimpleCommands.ART_MODE,
+                        "repeat": 1,
+                    },
+                },
+                "icon": "uc:frame",
+                "location": {"x": 1, "y": 6},
                 "size": {"height": 1, "width": 2},
                 "type": "icon",
             },
