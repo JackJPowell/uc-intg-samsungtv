@@ -37,6 +37,7 @@ features = [
     media_player.Features.GUIDE,
     media_player.Features.INFO,
     media_player.Features.SETTINGS,
+    media_player.Features.PLAY_PAUSE,
 ]
 
 
@@ -154,6 +155,8 @@ class SamsungMediaPlayer(MediaPlayer):
                     await self._device.send_key("KEY_GUIDE")
                 case media_player.Commands.BACK:
                     await self._device.send_key("KEY_RETURN")
+                case media_player.Commands.PLAY_PAUSE:
+                    await self._device.send_key("KEY_PLAY")
                 case media_player.Commands.SELECT_SOURCE:
                     await self._device.launch_app(app_name=params.get("source"))
                 case media_player.Commands.SETTINGS:
