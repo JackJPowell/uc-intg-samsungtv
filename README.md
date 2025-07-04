@@ -22,6 +22,53 @@ Supported commands:
 - Standard Key Commands
 - Launch application
 
+Remote Commands:
+- `on`
+- `off`
+- `toggle`
+- `play_pause`
+- `volume`
+- `volume_up`
+- `volume_down`
+- `mute_toggle`
+- `mute`
+- `unmute`
+- `channel_up`
+- `channel_down`
+- `cursor_up`
+- `cursor_down`
+- `cursor_left`
+- `cursor_right`
+- `cursor_enter`
+- `digit_0`
+- `digit_1`
+- `digit_2`
+- `digit_3`
+- `digit_4`
+- `digit_5`
+- `digit_6`
+- `digit_7`
+- `digit_8`
+- `digit_9`
+- `home`
+- `menu`
+- `context_menu`
+- `guide`
+- `info`
+- `back`
+- `select_source`
+- `settings`
+- `Channel List`
+- `Exit`
+- `Sleep`
+- `HDMI 1`
+- `HDMI 2`
+- `HDMI 3`
+- `HDMI 4`
+- `Red`
+- `Green`
+- `Yellow`
+- `Blue`
 
 ### Network
 
