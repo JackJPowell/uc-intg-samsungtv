@@ -405,11 +405,16 @@ class SamsungTv:
                 )
                 await rest_api.rest_app_run(app_id)
 
-    async def send_key(self, key: str) -> None:
+    async def send_key(self, key: str, **kwargs: Any) -> None:
         """Send a key to the TV."""
+        hold_time = kwargs.get("hold_time", None)  # in ms
         await self.check_connection_and_reconnect()
         if self._samsungtv is not None and self._samsungtv.is_alive():
-            await self._samsungtv.send_command(SendRemoteKey.click(key))
+            hold_time = float(hold_time / 1000) if hold_time else None
+            if hold_time:
+                await self._samsungtv.send_command(SendRemoteKey.hold(key, hold_time))
+            else:
+                await self._samsungtv.send_command(SendRemoteKey.click(key))
             return
         _LOG.error(
             "[%s] Cannot send key '%s', TV is not connected (_samsungtv: %s)",
@@ -455,6 +460,7 @@ class SamsungTv:
                     if in_art_mode:
                         rest.tv.art().set_artmode(False)
                         rest.close()
+                        self.send_key("KEY_POWER", hold_time=2000)
                 else:
                     if self._power_state == PowerState.ON:
                         _LOG.debug("[%s] Device is already ON", self.log_id)
