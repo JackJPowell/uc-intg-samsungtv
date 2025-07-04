@@ -170,6 +170,8 @@ class SamsungRemote(Remote):
                         await client.send_key("KEY_GUIDE")
                     case media_player.Commands.BACK:
                         await client.send_key("KEY_RETURN")
+                    case media_player.Commands.PLAY_PAUSE:
+                        await client.send_key("KEY_PLAY")
                     case media_player.Commands.SELECT_SOURCE:
                         await client.launch_app(app_name=params.get("source"))
                     case media_player.Commands.SETTINGS:
