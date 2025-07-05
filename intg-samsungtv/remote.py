@@ -122,6 +122,8 @@ class SamsungRemote(Remote):
                         await client.toggle_power(False)
                     case media_player.Commands.TOGGLE:
                         await client.toggle_power()
+                    case SimpleCommands.STANDBY:
+                        await client.send_key("KEY_POWER", hold_time=2000)
                     case media_player.Commands.VOLUME_UP:
                         await client.send_key("KEY_VOLUP", hold_time=hold)
                     case media_player.Commands.VOLUME_DOWN:
@@ -180,6 +182,14 @@ class SamsungRemote(Remote):
                         )
                     case media_player.Commands.SETTINGS:
                         await client.send_key("KEY_TOOLS", hold_time=hold)
+                    case media_player.Commands.FUNCTION_RED:
+                        await self._device.send_key("KEY_RED", hold_time=hold)
+                    case media_player.Commands.FUNCTION_GREEN:
+                        await self._device.send_key("KEY_GREEN", hold_time=hold)
+                    case media_player.Commands.FUNCTION_YELLOW:
+                        await self._device.send_key("KEY_YELLOW", hold_time=hold)
+                    case media_player.Commands.FUNCTION_BLUE:
+                        await self._device.send_key("KEY_BLUE", hold_time=hold)
                     case SimpleCommands.EXIT:
                         await client.send_key("KEY_EXIT", hold_time=hold)
                     case SimpleCommands.CH_LIST:
@@ -192,14 +202,6 @@ class SamsungRemote(Remote):
                         await client.send_key("KEY_HDMI3", hold_time=hold)
                     case SimpleCommands.HDMI_4:
                         await client.send_key("KEY_HDMI4", hold_time=hold)
-                    case SimpleCommands.RED:
-                        await client.send_key("KEY_RED", hold_time=hold)
-                    case SimpleCommands.GREEN:
-                        await client.send_key("KEY_GREEN", hold_time=hold)
-                    case SimpleCommands.YELLOW:
-                        await client.send_key("KEY_YELLOW", hold_time=hold)
-                    case SimpleCommands.BLUE:
-                        await client.send_key("KEY_BLUE", hold_time=hold)
                     case SimpleCommands.DEVICE_INFO:
                         client.get_device_info()
                     case SimpleCommands.ART_INFO:
@@ -219,6 +221,7 @@ class SamsungRemote(Remote):
             else:
                 return StatusCodes.NOT_IMPLEMENTED
             if delay > 0 and cmd_id != Commands.SEND_CMD_SEQUENCE:
+                delay = float(delay / 1000)
                 await asyncio.sleep(delay)
             return res
         except Exception as ex:  # pylint: disable=broad-except
@@ -237,6 +240,7 @@ SAMSUNG_REMOTE_SIMPLE_COMMANDS = [
     SimpleCommands.DEVICE_INFO.value,
     SimpleCommands.ART_INFO.value,
     SimpleCommands.ART_MODE.value,
+    SimpleCommands.STANDBY.value,
 ]
 SAMSUNG_REMOTE_BUTTONS_MAPPING: [DeviceButtonMapping] = [
     {"button": Buttons.BACK, "short_press": {"cmd_id": media_player.Commands.BACK}},

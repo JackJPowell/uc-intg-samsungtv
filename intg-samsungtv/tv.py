@@ -454,13 +454,12 @@ class SamsungTv:
                 if self.device_config.supports_art_mode:
                     rest = RestTV(self.device_config)
                     in_art_mode = rest.tv.art().get_artmode()
+                    rest.close()
                     _LOG.debug(
                         "[%s] Device is in art mode: %s", self.log_id, in_art_mode
                     )
                     if in_art_mode:
-                        rest.tv.art().set_artmode(False)
-                        rest.close()
-                        self.send_key("KEY_POWER", hold_time=2000)
+                        self.send_key("KEY_POWER")
                 else:
                     if self._power_state == PowerState.ON:
                         _LOG.debug("[%s] Device is already ON", self.log_id)
