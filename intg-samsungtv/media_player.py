@@ -38,6 +38,7 @@ features = [
     media_player.Features.INFO,
     media_player.Features.SETTINGS,
     media_player.Features.PLAY_PAUSE,
+    media_player.Features.COLOR_BUTTONS,
 ]
 
 
@@ -50,6 +51,25 @@ class SamsungMediaPlayer(MediaPlayer):
         _LOG.debug("SamsungMediaPlayer init")
         entity_id = create_entity_id(config_device.identifier, EntityTypes.MEDIA_PLAYER)
         self.config = config_device
+        self.options = (
+            [
+                SimpleCommands.EXIT.value,
+                SimpleCommands.CH_LIST.value,
+                SimpleCommands.SLEEP.value,
+                SimpleCommands.HDMI_1.value,
+                SimpleCommands.HDMI_2.value,
+                SimpleCommands.HDMI_3.value,
+                SimpleCommands.HDMI_4.value,
+            ],
+        )
+        if self.config.supports_art_mode:
+            self.options[0].extend(
+                [
+                    SimpleCommands.ART_INFO.value,
+                    SimpleCommands.ART_MODE.value,
+                    SimpleCommands.STANDBY.value,
+                ]
+            )
 
         super().__init__(
             entity_id,
@@ -61,21 +81,7 @@ class SamsungMediaPlayer(MediaPlayer):
                 Attributes.SOURCE_LIST: device.source_list,
             },
             device_class=DeviceClasses.TV,
-            options={
-                media_player.Options.SIMPLE_COMMANDS: [
-                    SimpleCommands.EXIT.value,
-                    SimpleCommands.CH_LIST.value,
-                    SimpleCommands.SLEEP.value,
-                    SimpleCommands.HDMI_1.value,
-                    SimpleCommands.HDMI_2.value,
-                    SimpleCommands.HDMI_3.value,
-                    SimpleCommands.HDMI_4.value,
-                    SimpleCommands.RED.value,
-                    SimpleCommands.GREEN.value,
-                    SimpleCommands.YELLOW.value,
-                    SimpleCommands.BLUE.value,
-                ],
-            },
+            options={media_player.Options.SIMPLE_COMMANDS: self.options[0]},
             cmd_handler=self.media_player_cmd_handler,
         )
 
@@ -105,6 +111,8 @@ class SamsungMediaPlayer(MediaPlayer):
                     await self._device.toggle_power(False)
                 case media_player.Commands.TOGGLE:
                     await self._device.toggle_power()
+                case SimpleCommands.STANDBY:
+                    await self._device.send_key("KEY_POWER", hold_time=2000)
                 case media_player.Commands.VOLUME_UP:
                     await self._device.send_key("KEY_VOLUP")
                 case media_player.Commands.VOLUME_DOWN:
@@ -161,19 +169,19 @@ class SamsungMediaPlayer(MediaPlayer):
                     await self._device.launch_app(app_name=params.get("source"))
                 case media_player.Commands.SETTINGS:
                     await self._device.send_key("KEY_TOOLS")
+                case media_player.Commands.FUNCTION_RED:
+                    await self._device.send_key("KEY_RED")
+                case media_player.Commands.FUNCTION_GREEN:
+                    await self._device.send_key("KEY_GREEN")
+                case media_player.Commands.FUNCTION_YELLOW:
+                    await self._device.send_key("KEY_YELLOW")
+                case media_player.Commands.FUNCTION_BLUE:
+                    await self._device.send_key("KEY_BLUE")
                 # --- simple commands ---
                 case SimpleCommands.EXIT:
                     await self._device.send_key("KEY_EXIT")
                 case SimpleCommands.CH_LIST:
                     await self._device.send_key("KEY_CH_LIST")
-                case SimpleCommands.RED:
-                    await self._device.send_key("KEY_RED")
-                case SimpleCommands.GREEN:
-                    await self._device.send_key("KEY_GREEN")
-                case SimpleCommands.YELLOW:
-                    await self._device.send_key("KEY_YELLOW")
-                case SimpleCommands.BLUE:
-                    await self._device.send_key("KEY_BLUE")
                 case SimpleCommands.ART_INFO:
                     self._device.get_art_info()
                 case SimpleCommands.ART_MODE:

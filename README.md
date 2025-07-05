@@ -58,17 +58,18 @@ Remote Commands:
 - `back`
 - `select_source`
 - `settings`
+- `function_red`
+- `function_green`
+- `function_yellow`
+- `function_blue`
 - `Channel List`
 - `Exit`
 - `Sleep`
+- `Standby`
 - `HDMI 1`
 - `HDMI 2`
 - `HDMI 3`
 - `HDMI 4`
-- `Red`
-- `Green`
-- `Yellow`
-- `Blue`
 
 ### Network
 
@@ -103,6 +104,8 @@ docker run -d \
     network_mode: host
     volumes:
       - ./<local_directory>:/config
+    environment:
+      - UC_INTEGRATION_HTTP_PORT=9090
     restart: unless-stopped
 ```
 
