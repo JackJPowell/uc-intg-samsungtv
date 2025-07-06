@@ -93,7 +93,7 @@ class SamsungRemote(Remote):
         self, cmd_id: str, params: dict[str, Any] | None = None
     ) -> StatusCodes:
         """Handle command."""
-        command = ""
+        command: str = ""
         delay = 0
         hold = None
 
@@ -115,99 +115,102 @@ class SamsungRemote(Remote):
             elif command == "remote.toggle":
                 await client.toggle_power()
             elif cmd_id == Commands.SEND_CMD:
-                match command:
-                    case media_player.Commands.ON:
-                        await client.toggle_power(True)
-                    case media_player.Commands.OFF:
-                        await client.toggle_power(False)
-                    case media_player.Commands.TOGGLE:
-                        await client.toggle_power()
-                    case SimpleCommands.STANDBY:
-                        await client.send_key("KEY_POWER", hold_time=2000)
-                    case media_player.Commands.VOLUME_UP:
-                        await client.send_key("KEY_VOLUP", hold_time=hold)
-                    case media_player.Commands.VOLUME_DOWN:
-                        await client.send_key("KEY_VOLDOWN", hold_time=hold)
-                    case media_player.Commands.MUTE_TOGGLE:
-                        await client.send_key("KEY_MUTE", hold_time=hold)
-                    case media_player.Commands.CHANNEL_DOWN:
-                        await client.send_key("KEY_CHDOWN", hold_time=hold)
-                    case media_player.Commands.CHANNEL_UP:
-                        await client.send_key("KEY_CHUP", hold_time=hold)
-                    case media_player.Commands.CURSOR_UP:
-                        await client.send_key("KEY_UP", hold_time=hold)
-                    case media_player.Commands.CURSOR_DOWN:
-                        await client.send_key("KEY_DOWN", hold_time=hold)
-                    case media_player.Commands.CURSOR_LEFT:
-                        await client.send_key("KEY_LEFT", hold_time=hold)
-                    case media_player.Commands.CURSOR_RIGHT:
-                        await client.send_key("KEY_RIGHT", hold_time=hold)
-                    case media_player.Commands.CURSOR_ENTER:
-                        await client.send_key("KEY_ENTER", hold_time=hold)
-                    case media_player.Commands.DIGIT_0:
-                        await client.send_key("KEY_0", hold_time=hold)
-                    case media_player.Commands.DIGIT_1:
-                        await client.send_key("KEY_1", hold_time=hold)
-                    case media_player.Commands.DIGIT_2:
-                        await client.send_key("KEY_2", hold_time=hold)
-                    case media_player.Commands.DIGIT_3:
-                        await client.send_key("KEY_3", hold_time=hold)
-                    case media_player.Commands.DIGIT_4:
-                        await client.send_key("KEY_4", hold_time=hold)
-                    case media_player.Commands.DIGIT_5:
-                        await client.send_key("KEY_5", hold_time=hold)
-                    case media_player.Commands.DIGIT_6:
-                        await client.send_key("KEY_6", hold_time=hold)
-                    case media_player.Commands.DIGIT_7:
-                        await client.send_key("KEY_7", hold_time=hold)
-                    case media_player.Commands.DIGIT_8:
-                        await client.send_key("KEY_8", hold_time=hold)
-                    case media_player.Commands.DIGIT_9:
-                        await client.send_key("KEY_9", hold_time=hold)
-                    case media_player.Commands.HOME:
-                        await client.send_key("KEY_HOME", hold_time=hold)
-                    case media_player.Commands.MENU:
-                        await client.send_key("KEY_MENU", hold_time=hold)
-                    case media_player.Commands.INFO:
-                        await client.send_key("KEY_INFO", hold_time=hold)
-                    case media_player.Commands.GUIDE:
-                        await client.send_key("KEY_GUIDE", hold_time=hold)
-                    case media_player.Commands.BACK:
-                        await client.send_key("KEY_RETURN", hold_time=hold)
-                    case media_player.Commands.PLAY_PAUSE:
-                        await client.send_key("KEY_PLAY", hold_time=hold)
-                    case media_player.Commands.SELECT_SOURCE:
-                        await client.launch_app(
-                            app_name=params.get("source"), hold_time=hold
-                        )
-                    case media_player.Commands.SETTINGS:
-                        await client.send_key("KEY_TOOLS", hold_time=hold)
-                    case media_player.Commands.FUNCTION_RED:
-                        await self._device.send_key("KEY_RED", hold_time=hold)
-                    case media_player.Commands.FUNCTION_GREEN:
-                        await self._device.send_key("KEY_GREEN", hold_time=hold)
-                    case media_player.Commands.FUNCTION_YELLOW:
-                        await self._device.send_key("KEY_YELLOW", hold_time=hold)
-                    case media_player.Commands.FUNCTION_BLUE:
-                        await self._device.send_key("KEY_BLUE", hold_time=hold)
-                    case SimpleCommands.EXIT:
-                        await client.send_key("KEY_EXIT", hold_time=hold)
-                    case SimpleCommands.CH_LIST:
-                        await client.send_key("KEY_CH_LIST", hold_time=hold)
-                    case SimpleCommands.HDMI_1:
-                        await client.send_key("KEY_HDMI1", hold_time=hold)
-                    case SimpleCommands.HDMI_2:
-                        await client.send_key("KEY_HDMI2", hold_time=hold)
-                    case SimpleCommands.HDMI_3:
-                        await client.send_key("KEY_HDMI3", hold_time=hold)
-                    case SimpleCommands.HDMI_4:
-                        await client.send_key("KEY_HDMI4", hold_time=hold)
-                    case SimpleCommands.DEVICE_INFO:
-                        client.get_device_info()
-                    case SimpleCommands.ART_INFO:
-                        client.get_art_info()
-                    case SimpleCommands.ART_MODE:
-                        client.toggle_art_mode()
+                if command.startswith("KEY_"):
+                    await client.send_key(command, hold_time=hold)
+                else:
+                    match command:
+                        case media_player.Commands.ON:
+                            await client.toggle_power(True)
+                        case media_player.Commands.OFF:
+                            await client.toggle_power(False)
+                        case media_player.Commands.TOGGLE:
+                            await client.toggle_power()
+                        case SimpleCommands.STANDBY:
+                            await client.send_key("KEY_POWER", hold_time=2000)
+                        case media_player.Commands.VOLUME_UP:
+                            await client.send_key("KEY_VOLUP", hold_time=hold)
+                        case media_player.Commands.VOLUME_DOWN:
+                            await client.send_key("KEY_VOLDOWN", hold_time=hold)
+                        case media_player.Commands.MUTE_TOGGLE:
+                            await client.send_key("KEY_MUTE", hold_time=hold)
+                        case media_player.Commands.CHANNEL_DOWN:
+                            await client.send_key("KEY_CHDOWN", hold_time=hold)
+                        case media_player.Commands.CHANNEL_UP:
+                            await client.send_key("KEY_CHUP", hold_time=hold)
+                        case media_player.Commands.CURSOR_UP:
+                            await client.send_key("KEY_UP", hold_time=hold)
+                        case media_player.Commands.CURSOR_DOWN:
+                            await client.send_key("KEY_DOWN", hold_time=hold)
+                        case media_player.Commands.CURSOR_LEFT:
+                            await client.send_key("KEY_LEFT", hold_time=hold)
+                        case media_player.Commands.CURSOR_RIGHT:
+                            await client.send_key("KEY_RIGHT", hold_time=hold)
+                        case media_player.Commands.CURSOR_ENTER:
+                            await client.send_key("KEY_ENTER", hold_time=hold)
+                        case media_player.Commands.DIGIT_0:
+                            await client.send_key("KEY_0", hold_time=hold)
+                        case media_player.Commands.DIGIT_1:
+                            await client.send_key("KEY_1", hold_time=hold)
+                        case media_player.Commands.DIGIT_2:
+                            await client.send_key("KEY_2", hold_time=hold)
+                        case media_player.Commands.DIGIT_3:
+                            await client.send_key("KEY_3", hold_time=hold)
+                        case media_player.Commands.DIGIT_4:
+                            await client.send_key("KEY_4", hold_time=hold)
+                        case media_player.Commands.DIGIT_5:
+                            await client.send_key("KEY_5", hold_time=hold)
+                        case media_player.Commands.DIGIT_6:
+                            await client.send_key("KEY_6", hold_time=hold)
+                        case media_player.Commands.DIGIT_7:
+                            await client.send_key("KEY_7", hold_time=hold)
+                        case media_player.Commands.DIGIT_8:
+                            await client.send_key("KEY_8", hold_time=hold)
+                        case media_player.Commands.DIGIT_9:
+                            await client.send_key("KEY_9", hold_time=hold)
+                        case media_player.Commands.HOME:
+                            await client.send_key("KEY_HOME", hold_time=hold)
+                        case media_player.Commands.MENU:
+                            await client.send_key("KEY_MENU", hold_time=hold)
+                        case media_player.Commands.INFO:
+                            await client.send_key("KEY_INFO", hold_time=hold)
+                        case media_player.Commands.GUIDE:
+                            await client.send_key("KEY_GUIDE", hold_time=hold)
+                        case media_player.Commands.BACK:
+                            await client.send_key("KEY_RETURN", hold_time=hold)
+                        case media_player.Commands.PLAY_PAUSE:
+                            await client.send_key("KEY_PLAY", hold_time=hold)
+                        case media_player.Commands.SELECT_SOURCE:
+                            await client.launch_app(
+                                app_name=params.get("source"), hold_time=hold
+                            )
+                        case media_player.Commands.SETTINGS:
+                            await client.send_key("KEY_TOOLS", hold_time=hold)
+                        case media_player.Commands.FUNCTION_RED:
+                            await self._device.send_key("KEY_RED", hold_time=hold)
+                        case media_player.Commands.FUNCTION_GREEN:
+                            await self._device.send_key("KEY_GREEN", hold_time=hold)
+                        case media_player.Commands.FUNCTION_YELLOW:
+                            await self._device.send_key("KEY_YELLOW", hold_time=hold)
+                        case media_player.Commands.FUNCTION_BLUE:
+                            await self._device.send_key("KEY_BLUE", hold_time=hold)
+                        case SimpleCommands.EXIT:
+                            await client.send_key("KEY_EXIT", hold_time=hold)
+                        case SimpleCommands.CH_LIST:
+                            await client.send_key("KEY_CH_LIST", hold_time=hold)
+                        case SimpleCommands.HDMI_1:
+                            await client.send_key("KEY_HDMI1", hold_time=hold)
+                        case SimpleCommands.HDMI_2:
+                            await client.send_key("KEY_HDMI2", hold_time=hold)
+                        case SimpleCommands.HDMI_3:
+                            await client.send_key("KEY_HDMI3", hold_time=hold)
+                        case SimpleCommands.HDMI_4:
+                            await client.send_key("KEY_HDMI4", hold_time=hold)
+                        case SimpleCommands.DEVICE_INFO:
+                            client.get_device_info()
+                        case SimpleCommands.ART_INFO:
+                            client.get_art_info()
+                        case SimpleCommands.ART_MODE:
+                            client.toggle_art_mode()
                 res = StatusCodes.OK
             elif cmd_id == Commands.SEND_CMD_SEQUENCE:
                 commands = params.get("sequence", [])
