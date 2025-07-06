@@ -1,6 +1,6 @@
 {
   "driver_id": "samsungtv_driver",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "min_core_api": "0.20.0",
   "name": { "en": "Samsung TV" },
   "icon": "uc:display",
