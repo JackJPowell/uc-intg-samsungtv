@@ -56,17 +56,14 @@ class SamsungMediaPlayer(MediaPlayer):
                 SimpleCommands.EXIT.value,
                 SimpleCommands.CH_LIST.value,
                 SimpleCommands.SLEEP.value,
-                SimpleCommands.HDMI_1.value,
-                SimpleCommands.HDMI_2.value,
-                SimpleCommands.HDMI_3.value,
-                SimpleCommands.HDMI_4.value,
             ],
         )
         if self.config.supports_art_mode:
             self.options[0].extend(
                 [
                     SimpleCommands.ART_INFO.value,
-                    SimpleCommands.ART_MODE.value,
+                    SimpleCommands.ART_MODE_ON.value,
+                    SimpleCommands.ART_MODE_OFF.value,
                     SimpleCommands.STANDBY.value,
                 ]
             )
@@ -184,8 +181,11 @@ class SamsungMediaPlayer(MediaPlayer):
                     await self._device.send_key("KEY_CH_LIST")
                 case SimpleCommands.ART_INFO:
                     self._device.get_art_info()
-                case SimpleCommands.ART_MODE:
-                    self._device.toggle_art_mode()
+                case SimpleCommands.ART_MODE_ON:
+                    self._device.toggle_art_mode(True)
+                case SimpleCommands.ART_MODE_OFF:
+                    self._device.toggle_art_mode(False)
+
         except Exception as ex:  # pylint: disable=broad-except
             _LOG.error("Error executing command %s: %s", cmd_id, ex)
             return ucapi.StatusCodes.TIMEOUT

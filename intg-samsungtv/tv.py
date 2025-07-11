@@ -589,9 +589,10 @@ class SamsungTv:
             supported = rest.tv.art().supported()
             _LOG.debug("Art Supported: %s", supported)
             if supported:
-                _LOG.debug("Art Mode: %s", rest.tv.art().get_artmode())
-                _LOG.debug("Art Available: %s", rest.tv.art().available())
                 _LOG.debug("Art Current: %s", rest.tv.art().get_current())
+                _LOG.debug("Art Available: %s", rest.tv.art().available())
+                _LOG.debug("Art Mode: %s", rest.tv.art().get_artmode())
+
             rest.close()
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.debug(
@@ -602,23 +603,21 @@ class SamsungTv:
             rest.close()
         return
 
-    def toggle_art_mode(self) -> None:
+    def toggle_art_mode(self, state: bool) -> None:
         """Toggle ART info from the TV."""
         try:
             rest = RestTV(self.device_config)
 
             supported = rest.tv.art().supported()
             _LOG.debug("Art Supported: %s", supported)
-            in_art_mode = rest.tv.art().get_artmode()
-            _LOG.debug("[%s] Device is in art mode: %s", self.log_id, in_art_mode)
-            if in_art_mode:
-                rest.tv.art().set_artmode(False)
-            else:
+            if state:
                 rest.tv.art().set_artmode(True)
+            else:
+                rest.tv.art().set_artmode(False)
             rest.close()
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.debug(
-                "[%s] Unable to retreive art info. TV may be offline %s",
+                "[%s] Unable to set art mode. TV may be offline %s",
                 self.log_id,
                 ex,
             )
@@ -641,7 +640,7 @@ class RestTV:
             name="Unfolded Circle",
         )
 
-    async def close(self) -> None:
+    def close(self) -> None:
         """Get REST info from the TV."""
         self.tv.close()
         return

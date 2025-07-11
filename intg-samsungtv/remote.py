@@ -197,20 +197,14 @@ class SamsungRemote(Remote):
                             await client.send_key("KEY_EXIT", hold_time=hold)
                         case SimpleCommands.CH_LIST:
                             await client.send_key("KEY_CH_LIST", hold_time=hold)
-                        case SimpleCommands.HDMI_1:
-                            await client.send_key("KEY_HDMI1", hold_time=hold)
-                        case SimpleCommands.HDMI_2:
-                            await client.send_key("KEY_HDMI2", hold_time=hold)
-                        case SimpleCommands.HDMI_3:
-                            await client.send_key("KEY_HDMI3", hold_time=hold)
-                        case SimpleCommands.HDMI_4:
-                            await client.send_key("KEY_HDMI4", hold_time=hold)
                         case SimpleCommands.DEVICE_INFO:
                             client.get_device_info()
                         case SimpleCommands.ART_INFO:
                             client.get_art_info()
-                        case SimpleCommands.ART_MODE:
-                            client.toggle_art_mode()
+                        case SimpleCommands.ART_MODE_ON:
+                            client.toggle_art_mode(True)
+                        case SimpleCommands.ART_MODE_OFF:
+                            client.toggle_art_mode(False)
                 res = StatusCodes.OK
             elif cmd_id == Commands.SEND_CMD_SEQUENCE:
                 commands = params.get("sequence", [])
@@ -236,13 +230,10 @@ SAMSUNG_REMOTE_SIMPLE_COMMANDS = [
     SimpleCommands.EXIT.value,
     SimpleCommands.CH_LIST.value,
     SimpleCommands.SLEEP.value,
-    SimpleCommands.HDMI_1.value,
-    SimpleCommands.HDMI_2.value,
-    SimpleCommands.HDMI_3.value,
-    SimpleCommands.HDMI_4.value,
     SimpleCommands.DEVICE_INFO.value,
     SimpleCommands.ART_INFO.value,
-    SimpleCommands.ART_MODE.value,
+    SimpleCommands.ART_MODE_ON.value,
+    SimpleCommands.ART_MODE_OFF.value,
     SimpleCommands.STANDBY.value,
 ]
 SAMSUNG_REMOTE_BUTTONS_MAPPING: [DeviceButtonMapping] = [
@@ -437,46 +428,6 @@ SAMSUNG_REMOTE_UI_PAGES = [
             {
                 "command": {
                     "cmd_id": "remote.send",
-                    "params": {"command": SimpleCommands.HDMI_1, "repeat": 1},
-                },
-                "text": "HDMI 1",
-                "location": {"x": 0, "y": 4},
-                "size": {"height": 1, "width": 1},
-                "type": "text",
-            },
-            {
-                "command": {
-                    "cmd_id": "remote.send",
-                    "params": {"command": SimpleCommands.HDMI_2, "repeat": 1},
-                },
-                "text": "HDMI 2",
-                "location": {"x": 1, "y": 4},
-                "size": {"height": 1, "width": 1},
-                "type": "text",
-            },
-            {
-                "command": {
-                    "cmd_id": "remote.send",
-                    "params": {"command": SimpleCommands.HDMI_3, "repeat": 1},
-                },
-                "text": "HDMI 3",
-                "location": {"x": 2, "y": 4},
-                "size": {"height": 1, "width": 1},
-                "type": "text",
-            },
-            {
-                "command": {
-                    "cmd_id": "remote.send",
-                    "params": {"command": SimpleCommands.HDMI_4, "repeat": 1},
-                },
-                "text": "HDMI 4",
-                "location": {"x": 3, "y": 4},
-                "size": {"height": 1, "width": 1},
-                "type": "text",
-            },
-            {
-                "command": {
-                    "cmd_id": "remote.send",
                     "params": {
                         "command": media_player.Commands.CHANNEL_UP,
                         "repeat": 1,
@@ -517,7 +468,7 @@ SAMSUNG_REMOTE_UI_PAGES = [
                 "command": {
                     "cmd_id": "remote.send",
                     "params": {
-                        "command": SimpleCommands.ART_MODE,
+                        "command": SimpleCommands.ART_MODE_ON,
                         "repeat": 1,
                     },
                 },
