@@ -10,13 +10,10 @@ class SimpleCommands(str, Enum):
     CH_LIST = "Channel List"
     EXIT = "Exit"
     SLEEP = "Sleep"
-    HDMI_1 = "HDMI 1"
-    HDMI_2 = "HDMI 2"
-    HDMI_3 = "HDMI 3"
-    HDMI_4 = "HDMI 4"
     DEVICE_INFO = "Device Info"
     ART_INFO = "Art Info"
-    ART_MODE = "Toggle Art Mode"
+    ART_MODE_ON = "Art Mode On"
+    ART_MODE_OFF = "Art Mode Off"
     STANDBY = "Standby"
 
 
