@@ -117,6 +117,8 @@ class SamsungRemote(Remote):
             elif cmd_id == Commands.SEND_CMD:
                 if command.startswith("KEY_"):
                     await client.send_key(command, hold_time=hold)
+                elif command.startswith("APP_"):
+                    await client.launch_app(app_id=command[4:])
                 else:
                     match command:
                         case media_player.Commands.ON:
@@ -180,9 +182,7 @@ class SamsungRemote(Remote):
                         case media_player.Commands.PLAY_PAUSE:
                             await client.send_key("KEY_PLAY", hold_time=hold)
                         case media_player.Commands.SELECT_SOURCE:
-                            await client.launch_app(
-                                app_name=params.get("source"), hold_time=hold
-                            )
+                            await client.launch_app(app_name=params.get("source"))
                         case media_player.Commands.SETTINGS:
                             await client.send_key("KEY_TOOLS", hold_time=hold)
                         case media_player.Commands.FUNCTION_RED:
