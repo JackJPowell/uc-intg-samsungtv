@@ -66,10 +66,6 @@ Remote Commands:
 - `Exit`
 - `Sleep`
 - `Standby`
-- `HDMI 1`
-- `HDMI 2`
-- `HDMI 3`
-- `HDMI 4`
 
 ### Network
 
@@ -82,6 +78,10 @@ Remote Commands:
 ### Samsung TV device
 
 - A samsung TV that is network enabled and running a version of Tizen OS is required to use the integration. Please refer to the samsungtvws library for additional information on supported models. 
+
+### Launching apps
+
+- For some devices a full list of applications may not be available. By using the send_command option and adding APP_<app_id> you can invoke the application, i.e. to launch Youtube use APP_111299001912. A list of known app_ids to try are available [here](https://github.com/tavicu/homebridge-samsung-tizen/issues/26#issuecomment-447424879)
 
 ## Usage
 
