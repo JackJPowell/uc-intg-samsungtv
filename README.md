@@ -66,11 +66,6 @@ Remote Commands:
 - `Exit`
 - `Sleep`
 - `Standby`
-- `HDMI 1`
-- `HDMI 2`
-- `HDMI 3`
-- `HDMI 4`
-- `send_command`
 
 ### Network
 
