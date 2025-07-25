@@ -56,6 +56,7 @@ class SamsungMediaPlayer(MediaPlayer):
                 SimpleCommands.EXIT.value,
                 SimpleCommands.CH_LIST.value,
                 SimpleCommands.SLEEP.value,
+                SimpleCommands.FORCE_POWER.value,
             ],
         )
         if self.config.supports_art_mode:
@@ -161,7 +162,7 @@ class SamsungMediaPlayer(MediaPlayer):
                 case media_player.Commands.BACK:
                     await self._device.send_key("KEY_RETURN")
                 case media_player.Commands.PLAY_PAUSE:
-                    await self._device.send_key("KEY_PLAY")
+                    await self._device.send_key("KEY_PLAY_BACK")
                 case media_player.Commands.SELECT_SOURCE:
                     await self._device.launch_app(app_name=params.get("source"))
                 case media_player.Commands.SETTINGS:
@@ -185,6 +186,8 @@ class SamsungMediaPlayer(MediaPlayer):
                     self._device.toggle_art_mode(True)
                 case SimpleCommands.ART_MODE_OFF:
                     self._device.toggle_art_mode(False)
+                case SimpleCommands.FORCE_POWER:
+                    await self._device.send_key("KEY_POWER")
 
         except Exception as ex:  # pylint: disable=broad-except
             _LOG.error("Error executing command %s: %s", cmd_id, ex)

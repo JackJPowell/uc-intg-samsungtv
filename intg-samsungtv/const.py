@@ -15,6 +15,7 @@ class SimpleCommands(str, Enum):
     ART_MODE_ON = "Art Mode On"
     ART_MODE_OFF = "Art Mode Off"
     STANDBY = "Standby"
+    FORCE_POWER = "Force Power"
 
 
 class States(IntEnum):
