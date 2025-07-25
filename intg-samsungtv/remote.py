@@ -219,7 +219,7 @@ class SamsungRemote(Remote):
                         await asyncio.sleep(delay)
             else:
                 return StatusCodes.NOT_IMPLEMENTED
-            if delay > 0 and cmd_id != Commands.SEND_CMD_SEQUENCE:
+            if delay != "" and delay > 0 and cmd_id != Commands.SEND_CMD_SEQUENCE:
                 delay = float(delay / 1000)
                 await asyncio.sleep(delay)
             return res
