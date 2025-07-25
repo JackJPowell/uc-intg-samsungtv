@@ -66,6 +66,7 @@ Remote Commands:
 - `Exit`
 - `Sleep`
 - `Standby`
+- `Force Power`
 
 ### Network
 

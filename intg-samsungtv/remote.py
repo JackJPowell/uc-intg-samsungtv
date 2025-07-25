@@ -180,7 +180,7 @@ class SamsungRemote(Remote):
                         case media_player.Commands.BACK:
                             await client.send_key("KEY_RETURN", hold_time=hold)
                         case media_player.Commands.PLAY_PAUSE:
-                            await client.send_key("KEY_PLAY", hold_time=hold)
+                            await client.send_key("KEY_PLAY_BACK", hold_time=hold)
                         case media_player.Commands.SELECT_SOURCE:
                             await client.launch_app(app_name=params.get("source"))
                         case media_player.Commands.SETTINGS:
@@ -205,6 +205,8 @@ class SamsungRemote(Remote):
                             client.toggle_art_mode(True)
                         case SimpleCommands.ART_MODE_OFF:
                             client.toggle_art_mode(False)
+                        case SimpleCommands.FORCE_POWER:
+                            await client.send_key("KEY_POWER", hold_time=hold)
                 res = StatusCodes.OK
             elif cmd_id == Commands.SEND_CMD_SEQUENCE:
                 commands = params.get("sequence", [])
@@ -235,6 +237,7 @@ SAMSUNG_REMOTE_SIMPLE_COMMANDS = [
     SimpleCommands.ART_MODE_ON.value,
     SimpleCommands.ART_MODE_OFF.value,
     SimpleCommands.STANDBY.value,
+    SimpleCommands.FORCE_POWER.value,
 ]
 SAMSUNG_REMOTE_BUTTONS_MAPPING: [DeviceButtonMapping] = [
     {"button": Buttons.BACK, "short_press": {"cmd_id": media_player.Commands.BACK}},
