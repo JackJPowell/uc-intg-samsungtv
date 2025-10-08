@@ -1,6 +1,6 @@
 [project]
 name = "uc-intg-samsungtv"
-version = "0.6.5"
+version = "0.6.6"
 description = "An Unfolded Circle integration for Samsung TV"
 readme = "README.md"
 requires-python = ">=3.11"
