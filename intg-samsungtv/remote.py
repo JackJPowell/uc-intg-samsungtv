@@ -122,7 +122,7 @@ class SamsungRemote(Remote):
 
         try:
             if cmd_id == Commands.SEND_CMD:
-                if command.startswith("APP_"):
+                if command.startswith("app_"):
                     await client.launch_app(app_id=command[4:])
                 else:
                     match command:
