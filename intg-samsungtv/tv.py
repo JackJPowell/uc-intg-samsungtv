@@ -194,6 +194,7 @@ class SamsungTv:
 
             if (
                 self._samsungtv is not None
+                and self._samsungtv.token
                 and self._samsungtv.token != self._device.token
             ):
                 _LOG.debug(
@@ -210,6 +211,12 @@ class SamsungTv:
                 self.events.emit(
                     EVENTS.UPDATE, self._device.identifier, {"state": PowerState.ON}
                 )
+                self.events.emit(EVENTS.CONNECTED, self._device.identifier)
+                _LOG.debug("[%s] Connected", self.log_id)
+                
+                await asyncio.sleep(1)
+                await self._start_polling()
+                await self._update_app_list()
             else:
                 _LOG.debug("[%s] Device is not alive", self.log_id)
                 self.events.emit(
@@ -217,19 +224,17 @@ class SamsungTv:
                 )
                 await self.disconnect()
         except asyncio.CancelledError:
-            pass
+            _LOG.debug("[%s] Connect setup cancelled", self.log_id)
+            raise
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error("[%s] Could not connect: %s", self.log_id, err)
             self._samsungtv = None
+            self.events.emit(
+                EVENTS.UPDATE, self._device.identifier, {"state": PowerState.OFF}
+            )
         finally:
+            self._connect_task = None
             _LOG.debug("[%s] Connect setup finished", self.log_id)
-
-        self.events.emit(EVENTS.CONNECTED, self._device.identifier)
-        _LOG.debug("[%s] Connected", self.log_id)
-
-        await asyncio.sleep(1)
-        await self._start_polling()
-        await self._update_app_list()
 
     async def _connect(self) -> None:
         """Connect to the device."""
@@ -248,11 +253,13 @@ class SamsungTv:
         )
 
         try:
-            print("[%s] Start listening", self.log_id)
+            _LOG.debug("[%s] Start listening", self.log_id)
             await self._samsungtv.start_listening(self.handle_remote_event)
         except Exception as e:  # pylint: disable=broad-exception-caught
-            print(
-                f"An error occurred while connecting to the TV (Start Listening): {e}"
+            _LOG.error(
+                "[%s] An error occurred while connecting to the TV (Start Listening): %s",
+                self.log_id,
+                e,
             )
 
     async def disconnect(self, continue_polling: bool = True) -> None:
@@ -262,9 +269,11 @@ class SamsungTv:
             await self._stop_polling()
 
         try:
-            if self._connect_task:
+            if self._connect_task and not self._connect_task.done():
                 _LOG.debug("[%s] Cancelling connect task", self.log_id)
                 self._connect_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._connect_task
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.exception(
                 "[%s] An error occurred while cancelling the connect task: %s",
@@ -291,6 +300,17 @@ class SamsungTv:
 
     async def close(self) -> None:
         """Close the connection."""
+        # Cancel power on task if running
+        if self._power_on_task and not self._power_on_task.done():
+            self._power_on_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._power_on_task
+        self._power_on_task = None
+        
+        # Stop polling
+        await self._stop_polling()
+        
+        # Close connection
         if self._samsungtv:
             await self._samsungtv.close()
             self._samsungtv = None
@@ -303,6 +323,8 @@ class SamsungTv:
     async def _stop_polling(self) -> None:
         if self._polling:
             self._polling.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._polling
             self._polling = None
             _LOG.debug("[%s] Polling stopped", self.log_id)
         else:
@@ -326,7 +348,7 @@ class SamsungTv:
                 err,
             )
 
-    async def _process_update(self, data: {}) -> None:  # pylint: disable=too-many-branches
+    async def _process_update(self, data: dict[str, Any]) -> None:  # pylint: disable=too-many-branches
         _LOG.debug("[%s] Process update", self.log_id)
         update = {}
 
@@ -426,7 +448,10 @@ class SamsungTv:
     async def _poll_worker(self) -> None:
         await asyncio.sleep(1)
         while True:
-            self.get_power_state()
+            try:
+                self.get_power_state()
+            except Exception as err:  # pylint: disable=broad-exception-caught
+                _LOG.exception("[%s] Error in poll worker: %s", self.log_id, err)
             await asyncio.sleep(5)
 
     async def toggle_power(self, power: bool | None = None) -> None:
@@ -502,7 +527,9 @@ class SamsungTv:
             _LOG.debug("[%s] Sending magic packet (%s)", self.log_id, i)
             wakeonlan.send_magic_packet(self._device.mac_address)
             await asyncio.sleep(2)
-            if self.power_state == PowerState.ON:
+            # Check actual connection state, not just the power_state property
+            if self._samsungtv is not None and self._samsungtv.is_alive():
+                _LOG.debug("[%s] Device is now alive", self.log_id)
                 break
             else:
                 _LOG.debug("[%s] Device is not alive yet", self.log_id)
@@ -511,7 +538,10 @@ class SamsungTv:
         if not self.is_connected:
             _LOG.warning("[%s] Unable to wake TV", self.log_id)
             self._power_state = PowerState.OFF
+        else:
+            self._power_state = PowerState.ON
 
+        self._end_of_power_on = None
         update["state"] = self._power_state
         self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
 
@@ -573,21 +603,24 @@ class SamsungTv:
 
     def get_device_info(self) -> dict[str, Any]:
         """Get REST info from the TV."""
+        rest = None
         try:
             rest = RestTV(self.device_config)
             info = rest.tv.rest_device_info()
             _LOG.debug("REST info: %s", info)
-            rest.close()
+            return info
         except Exception:  # pylint: disable=broad-exception-caught
             _LOG.debug(
-                "[%s] Unable to retreive rest info. TV may be offline", self.log_id
+                "[%s] Unable to retrieve rest info. TV may be offline", self.log_id
             )
-            rest.close()
-            info = {"device": {"PowerState": "off"}}
-        return info
+            return {"device": {"PowerState": "off"}}
+        finally:
+            if rest:
+                rest.close()
 
     def get_art_info(self) -> dict[str, Any]:
         """Get ART info from the TV."""
+        rest = None
         try:
             rest = RestTV(self.device_config)
 
@@ -598,18 +631,19 @@ class SamsungTv:
                 _LOG.debug("Art Available: %s", rest.tv.art().available())
                 _LOG.debug("Art Mode: %s", rest.tv.art().get_artmode())
 
-            rest.close()
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.debug(
-                "[%s] Unable to retreive art info. TV may be offline %s",
+                "[%s] Unable to retrieve art info. TV may be offline %s",
                 self.log_id,
                 ex,
             )
-            rest.close()
-        return
+        finally:
+            if rest:
+                rest.close()
 
     def toggle_art_mode(self, state: bool) -> None:
         """Toggle ART info from the TV."""
+        rest = None
         try:
             rest = RestTV(self.device_config)
 
@@ -619,15 +653,15 @@ class SamsungTv:
                 rest.tv.art().set_artmode(True)
             else:
                 rest.tv.art().set_artmode(False)
-            rest.close()
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.debug(
                 "[%s] Unable to set art mode. TV may be offline %s",
                 self.log_id,
                 ex,
             )
-            rest.close()
-        return
+        finally:
+            if rest:
+                rest.close()
 
 
 class RestTV:
