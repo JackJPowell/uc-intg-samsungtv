@@ -116,7 +116,14 @@ class SamsungTv:
 
     @property
     def is_connected(self) -> bool:
-        """Return if the device is connected."""
+        """
+        Return if the network connection to the device is established.
+
+        Note: Network connection does NOT always indicate power state.
+        - Frame TVs maintain connection even when off (in art mode)
+        - Older TVs maintain connection for ~65 seconds after power off
+        Use get_power_state() or the state property for actual power status.
+        """
         return self._samsungtv is not None and self._samsungtv.is_alive()
 
     @property
@@ -207,18 +214,26 @@ class SamsungTv:
                 config.devices.update(self._device)
 
             if self._samsungtv is not None and self._samsungtv.is_alive():
-                _LOG.debug("[%s] Device is alive", self.log_id)
+                _LOG.debug("[%s] Network connection established", self.log_id)
+
+                # Get actual power state via REST API
+                # This works for all Samsung TVs and gives us accurate state
+                self.get_power_state()
+                _LOG.debug(
+                    "[%s] Initial power state: %s", self.log_id, self._power_state
+                )
+
                 self.events.emit(
-                    EVENTS.UPDATE, self._device.identifier, {"state": PowerState.ON}
+                    EVENTS.UPDATE, self._device.identifier, {"state": self._power_state}
                 )
                 self.events.emit(EVENTS.CONNECTED, self._device.identifier)
                 _LOG.debug("[%s] Connected", self.log_id)
-                
+
                 await asyncio.sleep(1)
                 await self._start_polling()
                 await self._update_app_list()
             else:
-                _LOG.debug("[%s] Device is not alive", self.log_id)
+                _LOG.debug("[%s] Network connection failed", self.log_id)
                 self.events.emit(
                     EVENTS.UPDATE, self._device.identifier, {"state": PowerState.OFF}
                 )
@@ -306,10 +321,7 @@ class SamsungTv:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._power_on_task
         self._power_on_task = None
-        
-        # Stop polling
-        await self._stop_polling()
-        
+
         # Close connection
         if self._samsungtv:
             await self._samsungtv.close()
@@ -455,10 +467,19 @@ class SamsungTv:
             await asyncio.sleep(5)
 
     async def toggle_power(self, power: bool | None = None) -> None:
-        """Handle power state change."""
+        """
+        Handle power state change.
+
+        Frame TVs maintain network connection even when off/in standby, so we use
+        REST API to determine actual power state. Older TVs use network connection.
+        """
         update = {}
+
         if self.power_off_in_progress:
-            _LOG.debug("TV is powering off, attempting to send power command")
+            _LOG.debug(
+                "[%s] TV is powering off, canceling and attempting power on",
+                self.log_id,
+            )
             await self.send_key("KEY_POWER")
             self._end_of_power_off = None
             self._power_on_task = asyncio.create_task(self.power_on_wol())
@@ -467,122 +488,177 @@ class SamsungTv:
             return
 
         if self.power_on_in_progress:
-            _LOG.debug("TV is powering on, not sending power command")
+            _LOG.debug("[%s] TV is powering on, ignoring power command", self.log_id)
             return
 
+        # Determine target power state
         if power is None:
             self.get_power_state()
             power = self._power_state in [PowerState.OFF, PowerState.STANDBY]
 
         if power:
-            if self.device_config.reports_power_state:
-                if self.device_config.supports_art_mode:
-                    if self._power_state == PowerState.ON:
-                        rest = RestTV(self.device_config)
-                        rest.tv.art().set_artmode(False)
-                        rest.close()
-                        _LOG.debug(
-                            "[%s] Device is in art mode and on. Disabling Art mode.",
-                            self.log_id,
-                        )
-                        self._power_state = PowerState.ON
-                    else:
-                        _LOG.debug("[%s] Device is in standby mode", self.log_id)
-                        await self.send_key("KEY_POWER")
-                        self._power_state = PowerState.ON
-                else:
-                    if self._power_state == PowerState.ON:
-                        _LOG.debug("[%s] Device is already ON", self.log_id)
-                        self._power_state = PowerState.ON
-                    elif self._power_state == PowerState.STANDBY:
-                        _LOG.debug("[%s] Device is in standby mode", self.log_id)
-                        await self.send_key("KEY_POWER")
-                        self._power_state = PowerState.ON
-                    else:
-                        self._end_of_power_on = datetime.utcnow() + timedelta(
-                            seconds=17
-                        )
-                        self._power_on_task = asyncio.create_task(self.power_on_wol())
-                        self._power_state = PowerState.ON
-            else:
-                if self._samsungtv is not None and self._samsungtv.is_alive():
-                    _LOG.debug("[%s] Device is already ON", self.log_id)
-                    self._power_state = PowerState.ON
-                else:
-                    self._end_of_power_on = datetime.utcnow() + timedelta(seconds=17)
-                    self._power_on_task = asyncio.create_task(self.power_on_wol())
-                    self._power_state = PowerState.ON
+            # === POWER ON ===
+            await self._handle_power_on()
         else:
-            await self.send_key("KEY_POWER")
-            self._end_of_power_off = datetime.utcnow() + timedelta(seconds=65)
-            self._power_state = PowerState.OFF
+            # === POWER OFF ===
+            await self._handle_power_off()
 
         update["state"] = self._power_state
         self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
 
+    async def _handle_power_on(self) -> None:
+        """Handle turning the TV on."""
+        # For all TVs, check current power state
+        # REST API should work for both old and new TVs
+        if self._power_state == PowerState.ON:
+            _LOG.debug("[%s] Device is already fully ON", self.log_id)
+            return
+        elif self._power_state == PowerState.STANDBY:
+            # TV is in standby/art mode - just send power key
+            _LOG.debug("[%s] Device in STANDBY, sending KEY_POWER", self.log_id)
+            await self.send_key("KEY_POWER")
+            self._power_state = PowerState.ON
+        else:
+            # TV is completely off - need WOL
+            _LOG.debug("[%s] Device is OFF, initiating Wake-on-LAN", self.log_id)
+            self._end_of_power_on = datetime.utcnow() + timedelta(seconds=17)
+            self._power_on_task = asyncio.create_task(self.power_on_wol())
+            self._power_state = PowerState.ON
+
+    async def _handle_power_off(self) -> None:
+        """Handle turning the TV off."""
+        _LOG.debug("[%s] Sending KEY_POWER to turn off", self.log_id)
+        await self.send_key("KEY_POWER")
+
+        if self.device_config.supports_art_mode:
+            # Frame TVs with art mode - power off enters art mode/standby
+            # These typically transition to standby quickly (REST API will report "standby")
+            _LOG.debug("[%s] Frame TV: will enter art mode/standby", self.log_id)
+            self._end_of_power_off = datetime.utcnow() + timedelta(seconds=5)
+            self._power_state = PowerState.STANDBY
+        else:
+            # Regular TVs - power off fully, but network connection can take
+            # up to 65 seconds to drop. REST API should report "off" immediately though.
+            _LOG.debug(
+                "[%s] Regular TV: entering power off (network may stay alive briefly)",
+                self.log_id,
+            )
+            self._end_of_power_off = datetime.utcnow() + timedelta(seconds=65)
+            self._power_state = PowerState.OFF
+
     async def power_on_wol(self) -> None:
-        """Power on the TV."""
+        """
+        Power on the TV using Wake-on-LAN.
+
+        Sends magic packets and waits for the TV to respond.
+        Uses REST API to check actual power state (works for all Samsung TVs).
+        """
         update = {}
+        _LOG.debug("[%s] Starting Wake-on-LAN sequence", self.log_id)
+
         for i in range(8):
-            _LOG.debug("[%s] Sending magic packet (%s)", self.log_id, i)
+            _LOG.debug("[%s] Sending magic packet (%s/8)", self.log_id, i + 1)
             wakeonlan.send_magic_packet(self._device.mac_address)
             await asyncio.sleep(2)
-            # Check actual connection state, not just the power_state property
-            if self._samsungtv is not None and self._samsungtv.is_alive():
-                _LOG.debug("[%s] Device is now alive", self.log_id)
+
+            # Check if TV has powered on
+            await self.check_connection_and_reconnect()
+
+            # Check actual power state via REST API (works for all TVs)
+            self.get_power_state()
+            if self._power_state == PowerState.ON:
+                _LOG.debug("[%s] TV powered on successfully (state: ON)", self.log_id)
                 break
             else:
-                _LOG.debug("[%s] Device is not alive yet", self.log_id)
-                await self.check_connection_and_reconnect()
+                _LOG.debug(
+                    "[%s] TV not fully on yet (state: %s)",
+                    self.log_id,
+                    self._power_state,
+                )
 
-        if not self.is_connected:
-            _LOG.warning("[%s] Unable to wake TV", self.log_id)
-            self._power_state = PowerState.OFF
-        else:
-            self._power_state = PowerState.ON
+        # Final state check
+        self.get_power_state()
+        if self._power_state != PowerState.ON:
+            _LOG.warning(
+                "[%s] Unable to wake TV after 8 attempts (final state: %s)",
+                self.log_id,
+                self._power_state,
+            )
 
         self._end_of_power_on = None
         update["state"] = self._power_state
         self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
 
     def get_power_state(self) -> PowerState:
-        """Return the power status of the device."""
+        """
+        Return the power status of the device.
+
+        REST API works for all Samsung TVs, but only TVs with reports_power_state=True
+        actually report their power state. For others, fall back to network state.
+        """
         update = {}
-        samsungtv = None
-        if isinstance(self, SamsungTVWSAsyncRemote):
-            samsungtv = self
-        else:
-            samsungtv = self._samsungtv
 
         if self.device_config.reports_power_state:
+            # This TV is configured to report power state via REST API
+            # Query the REST API for actual power state
             power_state = (
                 self.get_device_info().get("device", None).get("PowerState", None)
             )
-            match power_state:
-                case "on":
-                    self._power_state = PowerState.ON
-                case "standby":
-                    self._power_state = PowerState.STANDBY
-                case "off":
-                    self._power_state = PowerState.OFF
-                case _:
-                    self._power_state = PowerState.OFF
+            
+            if power_state:
+                # REST API successfully returned power state
+                match power_state:
+                    case "on":
+                        self._power_state = PowerState.ON
+                        self._end_of_power_on = None
+                        _LOG.debug("[%s] REST API reports: ON", self.log_id)
+                    case "standby":
+                        self._power_state = PowerState.STANDBY
+                        _LOG.debug(
+                            "[%s] REST API reports: STANDBY (art mode/quick-start)",
+                            self.log_id,
+                        )
+                    case "off":
+                        self._power_state = PowerState.OFF
+                        _LOG.debug("[%s] REST API reports: OFF", self.log_id)
+                    case _:
+                        # Unknown power state from REST API
+                        self._power_state = PowerState.OFF
+                        _LOG.debug(
+                            "[%s] REST API reports unknown state: %s (assuming OFF)",
+                            self.log_id,
+                            power_state,
+                        )
+            else:
+                # REST API should report power state but didn't - TV likely completely off
+                _LOG.debug(
+                    "[%s] REST API failed to return power state - TV likely OFF",
+                    self.log_id,
+                )
+                self._power_state = PowerState.OFF
         else:
+            # This TV doesn't report power state via REST API
+            # Fall back to network connection state with grace period handling
+            samsungtv = self._samsungtv
+
             if samsungtv is not None and samsungtv.is_alive():
                 if self.power_off_in_progress:
+                    # User just requested power off, but network connection is still alive
+                    # (can take up to 65 seconds for older TVs to drop connection)
+                    # This grace period prevents false "on" state during shutdown
                     self._power_state = PowerState.OFF
-                    _LOG.debug("[%s] Device is alive", self.log_id)
+                    _LOG.debug(
+                        "[%s] Network alive but in power-off grace period", self.log_id
+                    )
                 else:
                     self._power_state = PowerState.ON
-                    _LOG.debug("[%s] Device is alive", self.log_id)
+                    _LOG.debug(
+                        "[%s] Network connection alive and no power-off pending - assuming ON",
+                        self.log_id,
+                    )
                     self._end_of_power_on = None
             else:
-                _LOG.debug(
-                    "[%s] SamsungTVWS Connection is not alive (Samsung TV: %s, ConnectTask: %s)",
-                    self.log_id,
-                    self._samsungtv is not None,
-                    self._connect_task is not None,
-                )
+                _LOG.debug("[%s] Network connection not alive - TV is OFF", self.log_id)
                 self._power_state = PowerState.OFF
 
         update["state"] = self._power_state

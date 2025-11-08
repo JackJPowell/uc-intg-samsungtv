@@ -49,9 +49,9 @@ class SamsungDevice:
     mac_address: str | None = None
     """MAC Address of device"""
     reports_power_state: bool = False
-    """True if the device supports power state reporting."""
+    """True if the device reports power state via REST API (Frame TVs and some newer models)."""
     supports_art_mode: bool = False
-    """True if the device supports art mode."""
+    """True if the device supports art mode (Frame TVs only)."""
 
 
 class _EnhancedJSONEncoder(json.JSONEncoder):
