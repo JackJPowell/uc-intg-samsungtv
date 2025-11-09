@@ -370,24 +370,41 @@ class SamsungTv:
         update["state"] = data.device_state
 
     async def _update_app_list(self) -> None:
+        """Update the list of installed applications."""
         _LOG.debug("[%s] Updating app list", self.log_id)
         update = {}
 
         try:
+            # Always include standard inputs
             update["source_list"] = ["TV", "HDMI", "HDMI1", "HDMI2", "HDMI3", "HDMI4"]
-            if self._samsungtv.is_alive():
-                await self._samsungtv.app_list()
-                if not self._app_list:
+            
+            if self._samsungtv and self._samsungtv.is_alive():
+                # Request app list - this returns the parsed list directly
+                app_list = await self._samsungtv.app_list()
+                
+                if app_list:
+                    # Successfully got app list from the async method
+                    _LOG.debug("[%s] Retrieved %d apps via app_list()", self.log_id, len(app_list))
+                    # Convert list to dict format
+                    self._app_list = {app["name"]: app["appId"] for app in app_list}
+                elif not self._app_list:
+                    # Fallback: try the alternative command-based method
+                    _LOG.debug("[%s] app_list() returned None, trying alternative method", self.log_id)
                     await self._get_app_list_via_remote()
 
-            if self._app_list is None or len(self._app_list) == 0:
-                _LOG.error("[%s] Unable to retrieve app list.", self.log_id)
+            # Add all installed apps to source list
+            if self._app_list:
+                _LOG.debug("[%s] Adding %d apps to source list", self.log_id, len(self._app_list))
+                for app_name in sorted(self._app_list.keys()):
+                    update["source_list"].append(app_name)
+            else:
+                _LOG.warning("[%s] No apps found in app list", self.log_id)
 
-            for app in self._app_list:
-                update["source_list"].append(app)
-        except Exception:  # pylint: disable=broad-exception-caught
-            _LOG.exception("[%s] App list: protocol error", self.log_id)
+        except Exception as ex:  # pylint: disable=broad-exception-caught
+            _LOG.exception("[%s] Error updating app list: %s", self.log_id, ex)
 
+        # Emit update with source list
+        _LOG.debug("[%s] Emitting source list with %d items", self.log_id, len(update.get("source_list", [])))
         self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
 
     async def _get_app_list_via_remote(self) -> list[str, str]:
@@ -675,7 +692,14 @@ class SamsungTv:
                 )
             }
             self._app_list = apps
-            _LOG.debug("Installed apps updated: %s", self._app_list)
+            _LOG.debug("[%s] Installed apps updated via event: %d apps", self.log_id, len(apps))
+            
+            # Emit update with the new app list
+            update = {
+                "source_list": ["TV", "HDMI", "HDMI1", "HDMI2", "HDMI3", "HDMI4"]
+                + sorted(self._app_list.keys())
+            }
+            self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
 
     def get_device_info(self) -> dict[str, Any]:
         """Get REST info from the TV."""
