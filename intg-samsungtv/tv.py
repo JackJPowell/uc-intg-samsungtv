@@ -361,13 +361,17 @@ class SamsungTv:
             )
 
     async def _process_update(self, data: dict[str, Any]) -> None:  # pylint: disable=too-many-branches
+        """Process device state updates."""
         _LOG.debug("[%s] Process update", self.log_id)
         update = {}
 
         # We only update device state (playing, paused, etc) if the power state is On
         # otherwise we'll set the state to Off in the polling method
-        self._state = data.device_state
-        update["state"] = data.device_state
+        if hasattr(data, 'device_state'):
+            self._state = data.device_state
+            update["state"] = data.device_state
+        else:
+            _LOG.debug("[%s] No device_state in update data", self.log_id)
 
     async def _update_app_list(self) -> None:
         """Update the list of installed applications."""
@@ -425,7 +429,7 @@ class SamsungTv:
     ) -> None:
         """Launch an app on the TV."""
         if self.power_off_in_progress:
-            _LOG.debug("TV is powering off, not sending launch_app command")
+            _LOG.debug("[%s] TV is powering off, not sending launch_app command", self.log_id)
             return
         if app_name:
             if app_name == "TV":
@@ -447,7 +451,19 @@ class SamsungTv:
                 await self.send_key("KEY_HDMI4")
                 return
             else:
-                app_id = self._app_list[app_name]
+                # Get app_id from app list, with error handling
+                app_id = self._app_list.get(app_name)
+                if app_id is None:
+                    _LOG.warning(
+                        "[%s] App '%s' not found in app list, cannot launch",
+                        self.log_id,
+                        app_name,
+                    )
+                    return
+
+        if app_id is None:
+            _LOG.error("[%s] No app_id provided to launch_app", self.log_id)
+            return
 
         async with aiohttp.ClientSession() as session:
             with contextlib.suppress(HttpApiError):
@@ -707,7 +723,7 @@ class SamsungTv:
         try:
             rest = RestTV(self.device_config)
             info = rest.tv.rest_device_info()
-            _LOG.debug("REST info: %s", info)
+            _LOG.debug("[%s] REST info: %s", self.log_id, info)
             return info
         except Exception:  # pylint: disable=broad-exception-caught
             _LOG.debug(
@@ -725,37 +741,38 @@ class SamsungTv:
             rest = RestTV(self.device_config)
 
             supported = rest.tv.art().supported()
-            _LOG.debug("Art Supported: %s", supported)
+            _LOG.debug("[%s] Art Supported: %s", self.log_id, supported)
             if supported:
-                _LOG.debug("Art Current: %s", rest.tv.art().get_current())
-                _LOG.debug("Art Available: %s", rest.tv.art().available())
-                _LOG.debug("Art Mode: %s", rest.tv.art().get_artmode())
-
+                _LOG.debug("[%s] Art Current: %s", self.log_id, rest.tv.art().get_current())
+                _LOG.debug("[%s] Art Available: %s", self.log_id, rest.tv.art().available())
+                _LOG.debug("[%s] Art Mode: %s", self.log_id, rest.tv.art().get_artmode())
+            return {"supported": supported}
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.debug(
-                "[%s] Unable to retrieve art info. TV may be offline %s",
+                "[%s] Unable to retrieve art info. TV may be offline: %s",
                 self.log_id,
                 ex,
             )
+            return {"supported": False}
         finally:
             if rest:
                 rest.close()
 
     def toggle_art_mode(self, state: bool) -> None:
-        """Toggle ART info from the TV."""
+        """Toggle ART mode on the TV."""
         rest = None
         try:
             rest = RestTV(self.device_config)
 
             supported = rest.tv.art().supported()
-            _LOG.debug("Art Supported: %s", supported)
+            _LOG.debug("[%s] Art Supported: %s", self.log_id, supported)
             if state:
                 rest.tv.art().set_artmode(True)
             else:
                 rest.tv.art().set_artmode(False)
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.debug(
-                "[%s] Unable to set art mode. TV may be offline %s",
+                "[%s] Unable to set art mode. TV may be offline: %s",
                 self.log_id,
                 ex,
             )
@@ -780,6 +797,6 @@ class RestTV:
         )
 
     def close(self) -> None:
-        """Get REST info from the TV."""
+        """Close the REST API connection."""
         self.tv.close()
         return

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-This module implements a Remote Two integration driver for Apple TV devices.
+This module implements a Remote Two integration driver for Samsung TV devices.
 
 :copyright: (c) 2023-2024 by Unfolded Circle ApS.
 :license: Mozilla Public License Version 2.0, see LICENSE for more details.
@@ -120,6 +120,9 @@ async def on_unsubscribe_entities(entity_ids: list[str]) -> None:
         device_id = device_from_entity_id(entity_id)
         if device_id is None:
             continue
+        if device_id not in _configured_devices:
+            _LOG.warning("Cannot unsubscribe %s: device not configured", device_id)
+            continue
         await _configured_devices[device_id].disconnect(continue_polling=False)
         _configured_devices[device_id].events.remove_all_listeners()
 
@@ -180,8 +183,8 @@ async def on_device_disconnected(device_id: str):
 
 
 async def on_device_connection_error(device_id: str, message):
-    """Set entities of LG TV to state UNAVAILABLE if device connection error occurred."""
-    _LOG.error(message)
+    """Set entities of Samsung TV to state UNAVAILABLE if device connection error occurred."""
+    _LOG.error("[%s] Connection error: %s", device_id, message)
 
     for entity_id in _entities_from_device_id(device_id):
         configured_entity = api.configured_entities.get(entity_id)
@@ -227,17 +230,26 @@ async def on_device_update(entity_id: str, update: dict[str, Any] | None) -> Non
     :param entity_id: Device media-player entity identifier
     :param update: dictionary containing the updated properties or None
     """
+    if update is None:
+        _LOG.debug("Received update with None data for %s, ignoring", entity_id)
+        return
+
     target_entity = None
     for identifier in _entities_from_device_id(entity_id):
         attributes = {}
         configured_entity = api.available_entities.get(identifier)
         if configured_entity is None:
-            return
+            _LOG.debug("Entity %s not found in available entities, skipping", identifier)
+            continue
 
         if isinstance(configured_entity, SamsungMediaPlayer):
             target_entity = api.available_entities.get(identifier)
         elif isinstance(configured_entity, SamsungRemote):
             target_entity = api.available_entities.get(identifier)
+
+        if target_entity is None:
+            _LOG.debug("Target entity %s is None, skipping", identifier)
+            continue
 
         if "state" in update:
             state = _device_state_to_media_player_state(update["state"])
@@ -286,7 +298,7 @@ def _add_configured_device(device_config: SamsungDevice, connect: bool = True) -
     # the device should not yet be configured, but better be safe
     if device_config.identifier in _configured_devices:
         _LOG.debug(
-            "DISCONNECTING: Existing config device updated, update the running device %s",
+            "Existing config device updated, update the running device %s",
             device_config,
         )
         device = _configured_devices[device_config.identifier]
@@ -305,11 +317,10 @@ def _add_configured_device(device_config: SamsungDevice, connect: bool = True) -
 
         _configured_devices[device.identifier] = device
 
-    async def start_connection():
-        await device.connect()
-
     if connect:
-        _LOOP.create_task(start_connection())
+        _LOG.debug("[%s] Creating connection task", device_config.identifier)
+        # Note: Task is fire-and-forget by design, connection status tracked via events
+        _LOOP.create_task(device.connect())
 
     _register_available_entities(device_config, device)
 
@@ -358,21 +369,22 @@ def on_device_removed(device: SamsungDevice | None) -> None:
         _LOG.debug(
             "Configuration cleared, disconnecting & removing all configured device instances"
         )
-        for device in _configured_devices.values():
-            _LOOP.create_task(device.disconnect(continue_polling=False))
-            device.events.remove_all_listeners()
+        for configured_device in _configured_devices.values():
+            _LOOP.create_task(configured_device.disconnect(continue_polling=False))
+            configured_device.events.remove_all_listeners()
         _configured_devices.clear()
         api.configured_entities.clear()
         api.available_entities.clear()
     else:
         if device.identifier in _configured_devices:
             _LOG.debug("Disconnecting from removed device %s", device.identifier)
-            device = _configured_devices.pop(device.identifier)
-            _LOOP.create_task(device.disconnect(continue_polling=False))
-            device.events.remove_all_listeners()
-            entity_id = device.identifier
-            api.configured_entities.remove(entity_id)
-            api.available_entities.remove(entity_id)
+            configured_device = _configured_devices.pop(device.identifier)
+            _LOOP.create_task(configured_device.disconnect(continue_polling=False))
+            configured_device.events.remove_all_listeners()
+            # Remove all entities associated with this device
+            for entity_id in _entities_from_device_id(device.identifier):
+                api.configured_entities.remove(entity_id)
+                api.available_entities.remove(entity_id)
 
 
 async def main():
