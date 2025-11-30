@@ -9,16 +9,14 @@ import logging
 from typing import Any
 
 import ucapi
-from config import SamsungDevice, create_entity_id
+from const import SamsungDevice, SimpleCommands
+from tv import SamsungTv
 from ucapi import EntityTypes, Remote, StatusCodes, media_player
 from ucapi.media_player import States as MediaStates
 from ucapi.remote import Attributes, Commands, Features
 from ucapi.remote import States as RemoteStates
-from ucapi.ui import DeviceButtonMapping, Buttons
-import tv
-from const import (
-    SimpleCommands,
-)
+from ucapi.ui import Buttons, DeviceButtonMapping
+from ucapi_framework import create_entity_id
 
 _LOG = logging.getLogger(__name__)
 
@@ -33,11 +31,11 @@ SAMSUNG_REMOTE_STATE_MAPPING = {
 class SamsungRemote(Remote):
     """Representation of a Samsung Remote entity."""
 
-    def __init__(self, config_device: SamsungDevice, device: tv.SamsungTv):
+    def __init__(self, config_device: SamsungDevice, device: SamsungTv):
         """Initialize the class."""
-        self._device: tv.SamsungTv = device
+        self._device = device
         _LOG.debug("Samsung Remote init")
-        entity_id = create_entity_id(config_device.identifier, EntityTypes.REMOTE)
+        entity_id = create_entity_id(EntityTypes.REMOTE, config_device.identifier)
         features = [Features.SEND_CMD, Features.ON_OFF, Features.TOGGLE]
         super().__init__(
             entity_id,
