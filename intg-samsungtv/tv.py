@@ -8,41 +8,24 @@ import contextlib
 import logging
 from asyncio import AbstractEventLoop
 from datetime import datetime, timedelta
-from enum import IntEnum, StrEnum
-from typing import Any, ParamSpec, TypeVar, cast
+from enum import StrEnum
+from typing import Any, cast
 
 import aiohttp
 import wakeonlan
-import config
-from config import SamsungDevice
-from pyee.asyncio import AsyncIOEventEmitter
+from const import SamsungDevice
 from samsungtvws import SamsungTVWS
 from samsungtvws.async_remote import SamsungTVWSAsyncRemote
 from samsungtvws.async_rest import SamsungTVAsyncRest
 from samsungtvws.event import ED_INSTALLED_APP_EVENT, parse_installed_app
 from samsungtvws.exceptions import HttpApiError
 from samsungtvws.remote import ChannelEmitCommand, SendRemoteKey
+from ucapi import EntityTypes
 from ucapi.media_player import Attributes as MediaAttr
+from ucapi_framework import PollingDevice, create_entity_id
+from ucapi_framework.device import DeviceEvents
 
 _LOG = logging.getLogger(__name__)
-
-BACKOFF_MAX = 30
-BACKOFF_SEC = 2
-
-
-class EVENTS(IntEnum):
-    """Internal driver events."""
-
-    CONNECTING = 0
-    CONNECTED = 1
-    DISCONNECTED = 2
-    PAIRED = 3
-    ERROR = 4
-    UPDATE = 5
-
-
-_SamsungTvT = TypeVar("_SamsungTvT", bound="SamsungTv")
-_P = ParamSpec("_P")
 
 
 class PowerState(StrEnum):
@@ -53,27 +36,22 @@ class PowerState(StrEnum):
     STANDBY = "STANDBY"
 
 
-class SamsungTv:
+class SamsungTv(PollingDevice):
     """Representing an Samsung TV Device."""
 
     def __init__(
-        self, device: SamsungDevice, loop: AbstractEventLoop | None = None
+        self,
+        device: SamsungDevice,
+        loop: AbstractEventLoop | None = None,
+        config_manager=None,
     ) -> None:
         """Create instance."""
-        self._loop: AbstractEventLoop = loop or asyncio.get_running_loop()
-        self.events = AsyncIOEventEmitter(self._loop)
-        self._is_connected: bool = False
+        # Initialize PollingDevice with 10 second poll interval
+        super().__init__(device, loop, poll_interval=10)
+
         self._samsungtv: SamsungTVWS | None = None
-        self._samsungtv_remote: SamsungTVWSAsyncRemote | None = None
-        self._device: SamsungDevice = device
         self._mac_address: str = device.mac_address
-        self._connect_task = None
-        self._connection_attempts: int = 0
-        self._polling = None
-        self._poll_interval: int = 10
-        self._state: PowerState | None = None
         self._app_list: dict[str, str] = {}
-        self._volume_level: float = 0.0
         self._end_of_power_off: datetime | None = None
         self._end_of_power_on: datetime | None = None
         self._active_source: str = ""
@@ -81,31 +59,30 @@ class SamsungTv:
         self._power_state: PowerState | None = None
 
     @property
-    def device_config(self) -> SamsungDevice:
-        """Return the device configuration."""
-        return self._device
-
-    @property
     def identifier(self) -> str:
         """Return the device identifier."""
-        if not self._device.identifier:
+        if not self._device_config.identifier:
             raise ValueError("Instance not initialized, no identifier available")
-        return self._device.identifier
+        return self._device_config.identifier
 
     @property
     def log_id(self) -> str:
         """Return a log identifier."""
-        return self._device.name if self._device.name else self._device.identifier
+        return (
+            self._device_config.name
+            if self._device_config.name
+            else self._device_config.identifier
+        )
 
     @property
     def name(self) -> str:
         """Return the device name."""
-        return self._device.name
+        return self._device_config.name
 
     @property
     def address(self) -> str | None:
         """Return the optional device address."""
-        return self._device.address
+        return self._device_config.address
 
     @property
     def state(self) -> PowerState | None:
@@ -174,143 +151,77 @@ class SamsungTv:
     @property
     def timeout(self) -> int:
         """Return the timeout for the connection."""
-        if self._device.token == "":
+        if self._device_config.token == "":
             return 30
         return 3
 
-    async def connect(self) -> None:
-        """Establish connection to TV."""
-        if self._samsungtv is not None and self._samsungtv.is_alive():
-            return
+    async def establish_connection(self) -> None:
+        """
+        Establish initial connection to device.
 
-        _LOG.debug("[%s] Connecting to device", self.log_id)
-        if not self._connect_task and not self._samsungtv:
-            self.events.emit(EVENTS.CONNECTING, self._device.identifier)
-            self._connect_task = asyncio.create_task(self._connect_setup())
-        else:
-            _LOG.debug(
-                "[%s] Not starting connect setup (Samsung TV: %s, ConnectTask: %s)",
-                self.log_id,
-                self._samsungtv is not None,
-                self._connect_task is not None,
-            )
+        Called once when connect() is invoked by the base PollingDevice class.
+        """
+        _LOG.debug("[%s] Connecting to %s", self.log_id, self._device_config.address)
 
-    async def _connect_setup(self) -> None:
-        try:
-            await self._connect()
-
-            if (
-                self._samsungtv is not None
-                and self._samsungtv.token
-                and self._samsungtv.token != self._device.token
-            ):
-                _LOG.debug(
-                    "[%s] Token changed - Old: %s, New: %s",
-                    self.log_id,
-                    self._device.token,
-                    self._samsungtv.token,
-                )
-                self._device.token = self._samsungtv.token
-                config.devices.update(self._device)
-
-            if self._samsungtv is not None and self._samsungtv.is_alive():
-                _LOG.debug("[%s] Network connection established", self.log_id)
-
-                # Get actual power state via REST API
-                # This works for all Samsung TVs and gives us accurate state
-                self.get_power_state()
-                _LOG.debug(
-                    "[%s] Initial power state: %s", self.log_id, self._power_state
-                )
-
-                self.events.emit(
-                    EVENTS.UPDATE, self._device.identifier, {"state": self._power_state}
-                )
-                self.events.emit(EVENTS.CONNECTED, self._device.identifier)
-                _LOG.debug("[%s] Connected", self.log_id)
-
-                await asyncio.sleep(1)
-                await self._start_polling()
-                await self._update_app_list()
-            else:
-                _LOG.debug("[%s] Network connection failed", self.log_id)
-                self.events.emit(
-                    EVENTS.UPDATE, self._device.identifier, {"state": PowerState.OFF}
-                )
-                await self.disconnect()
-        except asyncio.CancelledError:
-            _LOG.debug("[%s] Connect setup cancelled", self.log_id)
-            raise
-        except Exception as err:  # pylint: disable=broad-exception-caught
-            _LOG.error("[%s] Could not connect: %s", self.log_id, err)
-            self._samsungtv = None
-            self.events.emit(
-                EVENTS.UPDATE, self._device.identifier, {"state": PowerState.OFF}
-            )
-        finally:
-            self._connect_task = None
-            _LOG.debug("[%s] Connect setup finished", self.log_id)
-
-    async def _connect(self) -> None:
-        """Connect to the device."""
-        _LOG.debug(
-            "[%s] Connecting to TVWS device at IP address: %s",
-            self.log_id,
-            self._device.address,
-        )
+        # Create and start WebSocket connection
         self._samsungtv = SamsungTVWSAsyncRemote(
-            host=self._device.address,
+            host=self._device_config.address,
             port=8002,
             key_press_delay=0.1,
-            token=self._device.token,
+            token=self._device_config.token,
             name="Unfolded Circle Remote",
             timeout=self.timeout,
         )
+        await self._samsungtv.start_listening(self.handle_remote_event)
 
-        try:
-            _LOG.debug("[%s] Start listening", self.log_id)
-            await self._samsungtv.start_listening(self.handle_remote_event)
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            _LOG.error(
-                "[%s] An error occurred while connecting to the TV (Start Listening): %s",
-                self.log_id,
-                e,
-            )
+        # Update token if it changed during connection
+        if self._samsungtv.token and self._samsungtv.token != self._device_config.token:
+            _LOG.debug("[%s] Token updated", self.log_id)
+            self._device_config.token = self._samsungtv.token
+            self.update_config(token=self._samsungtv.token)
 
-    async def disconnect(self, continue_polling: bool = True) -> None:
-        """Disconnect from Samsung."""
+        # Verify connection and get initial state
+        if not self._samsungtv.is_alive():
+            self._samsungtv = None
+            raise ConnectionError("Failed to establish WebSocket connection")
+
+        _LOG.info("[%s] Connected", self.log_id)
+        self.get_power_state()
+        self.events.emit(
+            DeviceEvents.UPDATE,
+            self.get_entity_id(),
+            {MediaAttr.STATE: self._power_state},
+        )
+
+        # Fetch app list after brief delay
+        await asyncio.sleep(1)
+        await self._update_app_list()
+
+    async def poll_device(self) -> None:
+        """
+        Poll the device for status updates.
+
+        Called periodically by the base PollingDevice class based on poll_interval (5 seconds).
+        """
+        self.get_power_state()
+
+    async def disconnect(self) -> None:
+        """
+        Disconnect from Samsung.
+
+        Overrides base class disconnect() to handle Samsung-specific cleanup.
+        The base class will handle stopping the polling task.
+        """
         _LOG.debug("[%s] Disconnecting from device", self.log_id)
-        if not continue_polling:
-            await self._stop_polling()
 
-        try:
-            if self._connect_task and not self._connect_task.done():
-                _LOG.debug("[%s] Cancelling connect task", self.log_id)
-                self._connect_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._connect_task
-        except Exception as err:  # pylint: disable=broad-exception-caught
-            _LOG.exception(
-                "[%s] An error occurred while cancelling the connect task: %s",
-                self.log_id,
-                err,
-            )
-        finally:
-            self._connect_task = None
-
-        try:
-            if self._samsungtv:
-                _LOG.debug("[%s] Closing SamsungTVWS connection", self.log_id)
+        # Close WebSocket connection
+        if self._samsungtv:
+            with contextlib.suppress(Exception):
                 await self._samsungtv.close()
-        except Exception as err:  # pylint: disable=broad-exception-caught
-            _LOG.exception(
-                "[%s] An error occurred while closing SamsungTVWS connection: %s",
-                self.log_id,
-                err,
-            )
-        finally:
             self._samsungtv = None
 
+        # Call base class disconnect to stop polling
+        await super().disconnect()
         _LOG.debug("[%s] Disconnected", self.log_id)
 
     async def close(self) -> None:
@@ -327,38 +238,13 @@ class SamsungTv:
             await self._samsungtv.close()
             self._samsungtv = None
 
-    async def _start_polling(self) -> None:
-        if not self._polling:
-            self._polling = self._loop.create_task(self._poll_worker())
-            _LOG.debug("[%s] Polling started", self.log_id)
-
-    async def _stop_polling(self) -> None:
-        if self._polling:
-            self._polling.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._polling
-            self._polling = None
-            _LOG.debug("[%s] Polling stopped", self.log_id)
-        else:
-            _LOG.debug("[%s] Polling was already stopped", self.log_id)
-
     async def check_connection_and_reconnect(self) -> None:
         """Check if the connection is alive and reconnect if not."""
-        if self._samsungtv is None:
-            _LOG.debug("[%s] Connection is not alive, reconnecting", self.log_id)
-            await self.connect()
-            return
-
-        try:
-            if not self._samsungtv.is_alive():
+        if self._samsungtv is None or not self._samsungtv.is_alive():
+            _LOG.debug("[%s] Connection lost, reconnecting", self.log_id)
+            with contextlib.suppress(Exception):
                 await self.disconnect()
-                await self.connect()
-        except Exception as err:  # pylint: disable=broad-exception-caught
-            _LOG.exception(
-                "[%s] An error occurred while reconnecting: %s",
-                self.log_id,
-                err,
-            )
+            await self.connect()
 
     async def _process_update(self, data: dict[str, Any]) -> None:  # pylint: disable=too-many-branches
         """Process device state updates."""
@@ -367,9 +253,9 @@ class SamsungTv:
 
         # We only update device state (playing, paused, etc) if the power state is On
         # otherwise we'll set the state to Off in the polling method
-        if hasattr(data, 'device_state'):
+        if hasattr(data, "device_state"):
             self._state = data.device_state
-            update["state"] = data.device_state
+            update[MediaAttr.STATE] = data.device_state
         else:
             _LOG.debug("[%s] No device_state in update data", self.log_id)
 
@@ -380,27 +266,45 @@ class SamsungTv:
 
         try:
             # Always include standard inputs
-            update["source_list"] = ["TV", "HDMI", "HDMI1", "HDMI2", "HDMI3", "HDMI4"]
-            
+            update[MediaAttr.SOURCE_LIST] = [
+                "TV",
+                "HDMI",
+                "HDMI1",
+                "HDMI2",
+                "HDMI3",
+                "HDMI4",
+            ]
+
             if self._samsungtv and self._samsungtv.is_alive():
                 # Request app list - this returns the parsed list directly
                 app_list = await self._samsungtv.app_list()
-                
+
                 if app_list:
                     # Successfully got app list from the async method
-                    _LOG.debug("[%s] Retrieved %d apps via app_list()", self.log_id, len(app_list))
+                    _LOG.debug(
+                        "[%s] Retrieved %d apps via app_list()",
+                        self.log_id,
+                        len(app_list),
+                    )
                     # Convert list to dict format
                     self._app_list = {app["name"]: app["appId"] for app in app_list}
                 elif not self._app_list:
                     # Fallback: try the alternative command-based method
-                    _LOG.debug("[%s] app_list() returned None, trying alternative method", self.log_id)
+                    _LOG.debug(
+                        "[%s] app_list() returned None, trying alternative method",
+                        self.log_id,
+                    )
                     await self._get_app_list_via_remote()
 
             # Add all installed apps to source list
             if self._app_list:
-                _LOG.debug("[%s] Adding %d apps to source list", self.log_id, len(self._app_list))
+                _LOG.debug(
+                    "[%s] Adding %d apps to source list",
+                    self.log_id,
+                    len(self._app_list),
+                )
                 for app_name in sorted(self._app_list.keys()):
-                    update["source_list"].append(app_name)
+                    update[MediaAttr.SOURCE_LIST].append(app_name)
             else:
                 _LOG.warning("[%s] No apps found in app list", self.log_id)
 
@@ -408,8 +312,12 @@ class SamsungTv:
             _LOG.exception("[%s] Error updating app list: %s", self.log_id, ex)
 
         # Emit update with source list
-        _LOG.debug("[%s] Emitting source list with %d items", self.log_id, len(update.get("source_list", [])))
-        self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
+        _LOG.debug(
+            "[%s] Emitting source list with %d items",
+            self.log_id,
+            len(update.get(MediaAttr.SOURCE_LIST, [])),
+        )
+        self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
 
     async def _get_app_list_via_remote(self) -> list[str, str]:
         if not self.is_connected:
@@ -429,7 +337,9 @@ class SamsungTv:
     ) -> None:
         """Launch an app on the TV."""
         if self.power_off_in_progress:
-            _LOG.debug("[%s] TV is powering off, not sending launch_app command", self.log_id)
+            _LOG.debug(
+                "[%s] TV is powering off, not sending launch_app command", self.log_id
+            )
             return
         if app_name:
             if app_name == "TV":
@@ -468,7 +378,7 @@ class SamsungTv:
         async with aiohttp.ClientSession() as session:
             with contextlib.suppress(HttpApiError):
                 rest_api = SamsungTVAsyncRest(
-                    host=self._device.address, port=8002, session=session
+                    host=self._device_config.address, port=8002, session=session
                 )
                 await rest_api.rest_app_run(app_id)
 
@@ -490,15 +400,6 @@ class SamsungTv:
             self._samsungtv is not None,
         )
 
-    async def _poll_worker(self) -> None:
-        await asyncio.sleep(1)
-        while True:
-            try:
-                self.get_power_state()
-            except Exception as err:  # pylint: disable=broad-exception-caught
-                _LOG.exception("[%s] Error in poll worker: %s", self.log_id, err)
-            await asyncio.sleep(5)
-
     async def toggle_power(self, power: bool | None = None) -> None:
         """
         Handle power state change.
@@ -516,8 +417,8 @@ class SamsungTv:
             await self.send_key("KEY_POWER")
             self._end_of_power_off = None
             self._power_on_task = asyncio.create_task(self.power_on_wol())
-            update["state"] = PowerState.ON
-            self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
+            update[MediaAttr.STATE] = PowerState.ON
+            self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
             return
 
         if self.power_on_in_progress:
@@ -536,8 +437,8 @@ class SamsungTv:
             # === POWER OFF ===
             await self._handle_power_off()
 
-        update["state"] = self._power_state
-        self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
+        update[MediaAttr.STATE] = self._power_state
+        self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
 
     async def _handle_power_on(self) -> None:
         """Handle turning the TV on."""
@@ -591,7 +492,7 @@ class SamsungTv:
 
         for i in range(8):
             _LOG.debug("[%s] Sending magic packet (%s/8)", self.log_id, i + 1)
-            wakeonlan.send_magic_packet(self._device.mac_address)
+            wakeonlan.send_magic_packet(self._device_config.mac_address)
             await asyncio.sleep(2)
 
             # Check if TV has powered on
@@ -619,8 +520,8 @@ class SamsungTv:
             )
 
         self._end_of_power_on = None
-        update["state"] = self._power_state
-        self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
+        update[MediaAttr.STATE] = self._power_state
+        self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
 
     def get_power_state(self) -> PowerState:
         """
@@ -637,7 +538,7 @@ class SamsungTv:
             power_state = (
                 self.get_device_info().get("device", None).get("PowerState", None)
             )
-            
+
             if power_state:
                 # REST API successfully returned power state
                 match power_state:
@@ -694,8 +595,8 @@ class SamsungTv:
                 _LOG.debug("[%s] Network connection not alive - TV is OFF", self.log_id)
                 self._power_state = PowerState.OFF
 
-        update["state"] = self._power_state
-        self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
+        update[MediaAttr.STATE] = self._power_state
+        self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
 
     def handle_remote_event(self, event: str, response: Any) -> None:
         """Handle remote events."""
@@ -708,14 +609,23 @@ class SamsungTv:
                 )
             }
             self._app_list = apps
-            _LOG.debug("[%s] Installed apps updated via event: %d apps", self.log_id, len(apps))
-            
+            _LOG.debug(
+                "[%s] Installed apps updated via event: %d apps", self.log_id, len(apps)
+            )
+
             # Emit update with the new app list
             update = {
-                "source_list": ["TV", "HDMI", "HDMI1", "HDMI2", "HDMI3", "HDMI4"]
+                MediaAttr.SOURCE_LIST: [
+                    "TV",
+                    "HDMI",
+                    "HDMI1",
+                    "HDMI2",
+                    "HDMI3",
+                    "HDMI4",
+                ]
                 + sorted(self._app_list.keys())
             }
-            self.events.emit(EVENTS.UPDATE, self._device.identifier, update)
+            self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
 
     def get_device_info(self) -> dict[str, Any]:
         """Get REST info from the TV."""
@@ -743,9 +653,15 @@ class SamsungTv:
             supported = rest.tv.art().supported()
             _LOG.debug("[%s] Art Supported: %s", self.log_id, supported)
             if supported:
-                _LOG.debug("[%s] Art Current: %s", self.log_id, rest.tv.art().get_current())
-                _LOG.debug("[%s] Art Available: %s", self.log_id, rest.tv.art().available())
-                _LOG.debug("[%s] Art Mode: %s", self.log_id, rest.tv.art().get_artmode())
+                _LOG.debug(
+                    "[%s] Art Current: %s", self.log_id, rest.tv.art().get_current()
+                )
+                _LOG.debug(
+                    "[%s] Art Available: %s", self.log_id, rest.tv.art().available()
+                )
+                _LOG.debug(
+                    "[%s] Art Mode: %s", self.log_id, rest.tv.art().get_artmode()
+                )
             return {"supported": supported}
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.debug(
@@ -779,6 +695,10 @@ class SamsungTv:
         finally:
             if rest:
                 rest.close()
+
+    def get_entity_id(self) -> str:
+        """Return the entity ID for this device."""
+        return create_entity_id(EntityTypes.MEDIA_PLAYER, self.identifier)
 
 
 class RestTV:

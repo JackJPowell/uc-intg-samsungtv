@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 
 [[package]]
@@ -445,14 +445,14 @@ wheels = [
 
 [[package]]
 name = "pyee"
-version = "12.0.0"
+version = "13.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d2/a7/8faaa62a488a2a1e0d56969757f087cbd2729e9bcfa508c230299f366b4c/pyee-12.0.0.tar.gz", hash = "sha256:c480603f4aa2927d4766eb41fa82793fe60a82cbfdb8d688e0d08c55a534e145", size = 29675, upload-time = "2024-08-30T19:40:43.555Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/95/03/1fd98d5841cd7964a27d729ccf2199602fe05eb7a405c1462eb7277945ed/pyee-13.0.0.tar.gz", hash = "sha256:b391e3c5a434d1f5118a25615001dbc8f669cf410ab67d04c4d4e07c55481c37", size = 31250, upload-time = "2025-03-17T18:53:15.955Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1d/0d/95993c08c721ec68892547f2117e8f9dfbcef2ca71e098533541b4a54d5f/pyee-12.0.0-py3-none-any.whl", hash = "sha256:7b14b74320600049ccc7d0e0b1becd3b4bd0a03c745758225e31a59f4095c990", size = 14831, upload-time = "2024-08-30T19:40:42.132Z" },
+    { url = "https://files.pythonhosted.org/packages/9b/4d/b9add7c84060d4c1906abe9a7e5359f2a60f7a9a4f67268b2766673427d8/pyee-13.0.0-py3-none-any.whl", hash = "sha256:48195a3cddb3b1515ce0695ed76036b5ccc2ef3a9f963ff9f77aec0139845498", size = 15730, upload-time = "2025-03-17T18:53:14.532Z" },
 ]
 
 [[package]]
@@ -508,7 +508,7 @@ wheels = [
 
 [[package]]
 name = "uc-intg-samsungtv"
-version = "0.3.0"
+version = "1.0.0"
 source = { virtual = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -517,6 +517,7 @@ dependencies = [
     { name = "samsungtvws" },
     { name = "sddp-discovery-protocol" },
     { name = "ucapi" },
+    { name = "ucapi-framework" },
     { name = "wakeonlan" },
 ]
 
@@ -524,25 +525,40 @@ dependencies = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.0.0,<4.0.0" },
     { name = "async-timeout", specifier = ">=5.0.1" },
-    { name = "pyee", specifier = "~=12.0.0" },
+    { name = "pyee", specifier = ">=9.0.0" },
     { name = "samsungtvws", specifier = "==2.7.2" },
     { name = "sddp-discovery-protocol", specifier = "==1.5.0" },
-    { name = "ucapi", specifier = "==0.3.1" },
+    { name = "ucapi", specifier = "==0.4.0" },
+    { name = "ucapi-framework", specifier = "==1.0.3" },
     { name = "wakeonlan", specifier = ">=3.1.0" },
 ]
 
 [[package]]
 name = "ucapi"
-version = "0.3.1"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyee" },
     { name = "websockets" },
     { name = "zeroconf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/89/b9/f9fdda9dbc5d26729be1b7b56ae88df6d7fed94cc931777c6913752563a8/ucapi-0.3.1.tar.gz", hash = "sha256:b87125b383b8eeab435387168a5f6b1b7bc182f14b68d233e1ae7d33a4e397b2", size = 36389, upload-time = "2025-05-14T17:21:06.735Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b6/bc/cb5f6e00fc5205ed534dbe73f6718dcf94e52f8e22fc23840851f1663564/ucapi-0.4.0.tar.gz", hash = "sha256:594c8dec6cdaf51d6ab425fc327db4601777a083ae77225a6b30b57febc5c7b4", size = 36990, upload-time = "2025-11-24T16:39:34.217Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5a/5f/0420683c9785982c1c533036f046e52a0343fc2054d5697b667b330b4ba6/ucapi-0.3.1-py3-none-any.whl", hash = "sha256:ef352226d0d9b82ac91788f12ceaa7f9200b3698e2a1c4f50c88967730219f91", size = 32244, upload-time = "2025-05-14T17:21:04.927Z" },
+    { url = "https://files.pythonhosted.org/packages/21/10/8b27dce95b8aaa6aa3f6d4d525ed6c3ab41e994e0bbcbd4f15f69a3d96de/ucapi-0.4.0-py3-none-any.whl", hash = "sha256:b7a1f19783f4bbb19b44e5b5759642e7e437259ea4fc9f9332208d365745e501", size = 32541, upload-time = "2025-11-24T16:39:33.321Z" },
+]
+
+[[package]]
+name = "ucapi-framework"
+version = "1.0.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "pyee" },
+    { name = "ucapi" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f2/5d/e4e3e3c52852030029d4f34ee2f70015a1bb0cfa96707fb428a2e354757b/ucapi_framework-1.0.3.tar.gz", hash = "sha256:f2c8284dbc575c9193a672fe49c7716acf01a29edf6dca21a3805aad8ca39962", size = 80415, upload-time = "2025-11-30T03:20:19.695Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1a/6e/3bba606339c6530df6ad2946505ef0aa4e195880568511831a4c5eecd186/ucapi_framework-1.0.3-py3-none-any.whl", hash = "sha256:723adfdcb798512ad6b44300784c45af14dd8771ba1315a03b66e81db55d1559", size = 46472, upload-time = "2025-11-30T03:20:18.164Z" },
 ]
 
 [[package]]
