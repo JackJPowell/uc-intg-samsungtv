@@ -47,7 +47,7 @@ class SamsungTv(PollingDevice):
     ) -> None:
         """Create instance."""
         # Initialize PollingDevice with 10 second poll interval
-        super().__init__(device, loop, poll_interval=10)
+        super().__init__(device, loop, poll_interval=10, config_manager=config_manager)
 
         self._samsungtv: SamsungTVWS | None = None
         self._mac_address: str = device.mac_address
@@ -178,7 +178,7 @@ class SamsungTv(PollingDevice):
         if self._samsungtv.token and self._samsungtv.token != self._device_config.token:
             _LOG.debug("[%s] Token updated", self.log_id)
             self._device_config.token = self._samsungtv.token
-            self.update_config(token=self._samsungtv.token)
+            self._config_manager.update(self._device_config)
 
         # Verify connection and get initial state
         if not self._samsungtv.is_alive():
