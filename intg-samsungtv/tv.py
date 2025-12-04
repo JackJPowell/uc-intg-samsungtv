@@ -13,7 +13,7 @@ from typing import Any, cast
 
 import aiohttp
 import wakeonlan
-from const import SamsungDevice
+from const import SamsungConfig
 from samsungtvws import SamsungTVWS
 from samsungtvws.async_remote import SamsungTVWSAsyncRemote
 from samsungtvws.async_rest import SamsungTVAsyncRest
@@ -22,7 +22,7 @@ from samsungtvws.exceptions import HttpApiError
 from samsungtvws.remote import ChannelEmitCommand, SendRemoteKey
 from ucapi import EntityTypes
 from ucapi.media_player import Attributes as MediaAttr
-from ucapi_framework import PollingDevice, create_entity_id
+from ucapi_framework import ExternalClientDevice, create_entity_id
 from ucapi_framework.device import DeviceEvents
 
 _LOG = logging.getLogger(__name__)
@@ -36,21 +36,27 @@ class PowerState(StrEnum):
     STANDBY = "STANDBY"
 
 
-class SamsungTv(PollingDevice):
+class SamsungTv(ExternalClientDevice):
     """Representing an Samsung TV Device."""
 
     def __init__(
         self,
-        device: SamsungDevice,
+        device_config: SamsungConfig,
         loop: AbstractEventLoop | None = None,
         config_manager=None,
     ) -> None:
         """Create instance."""
-        # Initialize PollingDevice with 10 second poll interval
-        super().__init__(device, loop, poll_interval=10, config_manager=config_manager)
-
-        self._samsungtv: SamsungTVWS | None = None
-        self._mac_address: str = device.mac_address
+        # Initialize ExternalClientDevice with 10 second watchdog interval
+        super().__init__(
+            device_config,
+            loop,
+            enable_watchdog=True,
+            watchdog_interval=10,
+            reconnect_delay=5,
+            max_reconnect_attempts=0,  # Infinite retries
+            config_manager=config_manager,
+        )
+        self._mac_address: str = device_config.mac_address
         self._app_list: dict[str, str] = {}
         self._end_of_power_off: datetime | None = None
         self._end_of_power_on: datetime | None = None
@@ -91,17 +97,16 @@ class SamsungTv(PollingDevice):
             return PowerState.OFF
         return self._power_state
 
-    @property
-    def is_connected(self) -> bool:
+    def check_client_connected(self) -> bool:
         """
-        Return if the network connection to the device is established.
+        Check if the external client (SamsungTVWSAsyncRemote) is connected.
 
         Note: Network connection does NOT always indicate power state.
         - Frame TVs maintain connection even when off (in art mode)
         - Older TVs maintain connection for ~65 seconds after power off
         Use get_power_state() or the state property for actual power status.
         """
-        return self._samsungtv is not None and self._samsungtv.is_alive()
+        return self._client is not None and self._client.is_alive()
 
     @property
     def source_list(self) -> list[str]:
@@ -155,16 +160,14 @@ class SamsungTv(PollingDevice):
             return 30
         return 3
 
-    async def establish_connection(self) -> None:
+    async def create_client(self) -> SamsungTVWSAsyncRemote:
         """
-        Establish initial connection to device.
+        Create the Samsung TV WebSocket client instance.
 
-        Called once when connect() is invoked by the base PollingDevice class.
+        Called by base class when connecting.
         """
-        _LOG.debug("[%s] Connecting to %s", self.log_id, self._device_config.address)
-
-        # Create and start WebSocket connection
-        self._samsungtv = SamsungTVWSAsyncRemote(
+        _LOG.debug("[%s] Creating client for %s", self.log_id, self._device_config.address)
+        return SamsungTVWSAsyncRemote(
             host=self._device_config.address,
             port=8002,
             key_press_delay=0.1,
@@ -172,20 +175,27 @@ class SamsungTv(PollingDevice):
             name="Unfolded Circle Remote",
             timeout=self.timeout,
         )
-        await self._samsungtv.start_listening(self.handle_remote_event)
+
+    async def connect_client(self) -> None:
+        """
+        Connect and set up the Samsung TV client.
+
+        Called by base class after create_client().
+        """
+        await self._client.start_listening(self.handle_remote_event)
 
         # Update token if it changed during connection
-        if self._samsungtv.token and self._samsungtv.token != self._device_config.token:
+        if self._client.token and self._client.token != self._device_config.token:
             _LOG.debug("[%s] Token updated", self.log_id)
-            self._device_config.token = self._samsungtv.token
-            self._config_manager.update(self._device_config)
+            self._device_config.token = self._client.token
+            if self._config_manager:
+                self._config_manager.update(self._device_config)
 
-        # Verify connection and get initial state
-        if not self._samsungtv.is_alive():
-            self._samsungtv = None
+        # Verify connection
+        if not self._client.is_alive():
             raise ConnectionError("Failed to establish WebSocket connection")
 
-        _LOG.info("[%s] Connected", self.log_id)
+        # Get initial state and fetch app list
         self.get_power_state()
         self.events.emit(
             DeviceEvents.UPDATE,
@@ -193,34 +203,25 @@ class SamsungTv(PollingDevice):
             {MediaAttr.STATE: self._power_state},
         )
 
-        # Fetch app list after brief delay
         await asyncio.sleep(1)
         await self._update_app_list()
 
-    async def poll_device(self) -> None:
+    async def disconnect_client(self) -> None:
         """
-        Poll the device for status updates.
+        Disconnect the Samsung TV client.
 
-        Called periodically by the base PollingDevice class based on poll_interval (5 seconds).
+        Called by base class during disconnect.
         """
-        self.get_power_state()
+        if self._client:
+            await self._client.close()
 
     async def disconnect(self) -> None:
         """
         Disconnect from Samsung.
 
-        Overrides base class disconnect() to handle Samsung-specific cleanup.
-        The base class will handle stopping the polling task.
+        The base class handles stopping the watchdog and calling disconnect_client().
         """
         _LOG.debug("[%s] Disconnecting from device", self.log_id)
-
-        # Close WebSocket connection
-        if self._samsungtv:
-            with contextlib.suppress(Exception):
-                await self._samsungtv.close()
-            self._samsungtv = None
-
-        # Call base class disconnect to stop polling
         await super().disconnect()
         _LOG.debug("[%s] Disconnected", self.log_id)
 
@@ -234,16 +235,23 @@ class SamsungTv(PollingDevice):
         self._power_on_task = None
 
         # Close connection
-        if self._samsungtv:
-            await self._samsungtv.close()
-            self._samsungtv = None
+        if self._client:
+            await self._client.close()
+            self._client = None
 
     async def check_connection_and_reconnect(self) -> None:
         """Check if the connection is alive and reconnect if not."""
-        if self._samsungtv is None or not self._samsungtv.is_alive():
+        if self._client is None:
+            _LOG.debug("[%s] Client is None, connecting", self.log_id)
+            await self.connect()
+            return
+
+        if not self._client.is_alive():
             _LOG.debug("[%s] Connection lost, reconnecting", self.log_id)
+            # Clean up old client before reconnecting (like main branch did)
             with contextlib.suppress(Exception):
-                await self.disconnect()
+                await self._client.close()
+            self._client = None
             await self.connect()
 
     async def _process_update(self, data: dict[str, Any]) -> None:  # pylint: disable=too-many-branches
@@ -275,9 +283,9 @@ class SamsungTv(PollingDevice):
                 "HDMI4",
             ]
 
-            if self._samsungtv and self._samsungtv.is_alive():
+            if self._client and self._client.is_alive():
                 # Request app list - this returns the parsed list directly
-                app_list = await self._samsungtv.app_list()
+                app_list = await self._client.app_list()
 
                 if app_list:
                     # Successfully got app list from the async method
@@ -323,7 +331,7 @@ class SamsungTv(PollingDevice):
         if not self.is_connected:
             return {}
         try:
-            app_list = await self._samsungtv.send_command(
+            app_list = await self._client.send_command(
                 ChannelEmitCommand.get_installed_app()
             )
             if app_list is None:
@@ -386,18 +394,18 @@ class SamsungTv(PollingDevice):
         """Send a key to the TV."""
         hold_time = kwargs.get("hold_time", None)  # in ms
         await self.check_connection_and_reconnect()
-        if self._samsungtv is not None and self._samsungtv.is_alive():
+        if self._client is not None and self._client.is_alive():
             hold_time = float(hold_time / 1000) if hold_time else None
             if hold_time:
-                await self._samsungtv.send_command(SendRemoteKey.hold(key, hold_time))
+                await self._client.send_command(SendRemoteKey.hold(key, hold_time))
             else:
-                await self._samsungtv.send_command(SendRemoteKey.click(key))
+                await self._client.send_command(SendRemoteKey.click(key))
             return
         _LOG.error(
-            "[%s] Cannot send key '%s', TV is not connected (_samsungtv: %s)",
+            "[%s] Cannot send key '%s', TV is not connected (_client: %s)",
             self.log_id,
             key,
-            self._samsungtv is not None,
+            self._client is not None,
         )
 
     async def toggle_power(self, power: bool | None = None) -> None:
@@ -573,9 +581,9 @@ class SamsungTv(PollingDevice):
         else:
             # This TV doesn't report power state via REST API
             # Fall back to network connection state with grace period handling
-            samsungtv = self._samsungtv
+            client = self._client
 
-            if samsungtv is not None and samsungtv.is_alive():
+            if client is not None and client.is_alive():
                 if self.power_off_in_progress:
                     # User just requested power off, but network connection is still alive
                     # (can take up to 65 seconds for older TVs to drop connection)
@@ -706,8 +714,8 @@ class RestTV:
 
     def __init__(
         self,
-        device_config: SamsungDevice,
-    ) -> SamsungTVWS:
+        device_config: SamsungConfig,
+    ) -> None:
         """Create instance."""
         self.tv = SamsungTVWS(
             device_config.address,

@@ -7,7 +7,7 @@ from ucapi.media_player import States as MediaStates
 
 
 @dataclass
-class SamsungDevice:
+class SamsungConfig:
     """Samsung device configuration."""
 
     identifier: str
