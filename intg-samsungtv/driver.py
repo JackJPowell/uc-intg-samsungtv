@@ -9,13 +9,13 @@ import asyncio
 import logging
 import os
 
-from const import SamsungDevice
+from const import SamsungConfig
 from discover import SamsungTVDiscovery
 from media_player import SamsungMediaPlayer
 from remote import SamsungRemote
 from setup import SamsungSetupFlow
 from tv import SamsungTv
-from ucapi_framework import BaseDeviceManager, BaseIntegrationDriver, get_config_path
+from ucapi_framework import BaseConfigManager, BaseIntegrationDriver, get_config_path
 
 
 async def main():
@@ -29,26 +29,22 @@ async def main():
     logging.getLogger("discover").setLevel(level)
     logging.getLogger("setup").setLevel(level)
 
-    loop = asyncio.get_running_loop()
-
     driver = BaseIntegrationDriver(
-        loop=loop,
         device_class=SamsungTv,
         entity_classes=[SamsungMediaPlayer, SamsungRemote],
     )
 
-    driver.config = BaseDeviceManager(
+    driver.config_manager = BaseConfigManager(
         get_config_path(driver.api.config_dir_path),
         driver.on_device_added,
         driver.on_device_removed,
-        device_class=SamsungDevice,
+        config_class=SamsungConfig,
     )
 
-    for device in list(driver.config.all()):
-        driver.add_configured_device(device, connect=False)
+    await driver.register_all_configured_devices()
 
     discovery = SamsungTVDiscovery(timeout=2, search_pattern="Samsung")
-    setup_handler = SamsungSetupFlow.create_handler(driver.config, discovery)
+    setup_handler = SamsungSetupFlow.create_handler(driver, discovery)
 
     await driver.api.init("driver.json", setup_handler)
 

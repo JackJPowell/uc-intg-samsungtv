@@ -9,7 +9,7 @@ import logging
 import re
 from typing import Any
 
-from const import SamsungDevice
+from const import SamsungConfig
 from samsungtvws import SamsungTVWS
 from ucapi import IntegrationSetupError, RequestUserInput
 from ucapi_framework import BaseSetupFlow
@@ -45,7 +45,7 @@ _MANUAL_INPUT_SCHEMA = RequestUserInput(
 )
 
 
-class SamsungSetupFlow(BaseSetupFlow[SamsungDevice]):
+class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
     """Setup flow handler for Samsung TV integration."""
 
     def get_manual_entry_form(self) -> RequestUserInput:
@@ -58,7 +58,7 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungDevice]):
 
     async def query_device(
         self, input_values: dict[str, Any]
-    ) -> RequestUserInput | SamsungDevice:
+    ) -> RequestUserInput | SamsungConfig:
         """
         Process user data response from the first setup process screen.
 
@@ -90,7 +90,11 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungDevice]):
             _LOG.info("Samsung TV info: %s", info)
 
             # if we are adding a new device: make sure it's not already configured
-            if self._add_mode and self.config.contains(info.get("identifier")):
+            if (
+                self._add_mode
+                and self.config is not None
+                and self.config.contains(info.get("identifier"))
+            ):
                 _LOG.info(
                     "Skipping found device %s: already configured",
                     info.get("device").get("name"),
@@ -98,7 +102,7 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungDevice]):
                 raise IntegrationSetupError("Device already configured")
             name = re.sub(r"^\[TV\] ", "", info.get("device").get("name"))
 
-            return SamsungDevice(
+            return SamsungConfig(
                 identifier=info.get("id"),
                 name=name,
                 token=tv.token,

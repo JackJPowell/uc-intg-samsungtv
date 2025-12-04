@@ -9,7 +9,7 @@ import logging
 from typing import Any
 
 import ucapi
-from const import SamsungDevice, SimpleCommands
+from const import SamsungConfig, SimpleCommands
 from tv import SamsungTv
 from ucapi import EntityTypes, Remote, StatusCodes, media_player
 from ucapi.media_player import States as MediaStates
@@ -31,7 +31,7 @@ SAMSUNG_REMOTE_STATE_MAPPING = {
 class SamsungRemote(Remote):
     """Representation of a Samsung Remote entity."""
 
-    def __init__(self, config_device: SamsungDevice, device: SamsungTv):
+    def __init__(self, config_device: SamsungConfig, device: SamsungTv):
         """Initialize the class."""
         self._device = device
         _LOG.debug("Samsung Remote init")
@@ -352,7 +352,7 @@ SAMSUNG_REMOTE_SIMPLE_COMMANDS = [
     SimpleCommands.STANDBY.value,
     SimpleCommands.FORCE_POWER.value,
 ]
-SAMSUNG_REMOTE_BUTTONS_MAPPING: [DeviceButtonMapping] = [
+SAMSUNG_REMOTE_BUTTONS_MAPPING: list[DeviceButtonMapping] = [
     {"button": Buttons.BACK, "short_press": {"cmd_id": media_player.Commands.BACK}},
     {"button": Buttons.HOME, "short_press": {"cmd_id": media_player.Commands.HOME}},
     {

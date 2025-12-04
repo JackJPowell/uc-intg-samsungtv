@@ -8,7 +8,7 @@ import logging
 from typing import Any
 
 import ucapi
-from const import SamsungDevice, SimpleCommands
+from const import SamsungConfig, SimpleCommands
 from tv import SamsungTv
 from ucapi import EntityTypes, MediaPlayer, media_player
 from ucapi.media_player import Attributes, DeviceClasses
@@ -39,7 +39,7 @@ features = [
 class SamsungMediaPlayer(MediaPlayer):
     """Representation of a Samsung MediaPlayer entity."""
 
-    def __init__(self, config_device: SamsungDevice, device: SamsungTv):
+    def __init__(self, config_device: SamsungConfig, device: SamsungTv):
         """Initialize the class."""
         self._device = device
         _LOG.debug("SamsungMediaPlayer init")
