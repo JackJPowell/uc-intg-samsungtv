@@ -46,13 +46,10 @@ class SamsungTv(ExternalClientDevice):
         config_manager=None,
     ) -> None:
         """Create instance."""
-        # Initialize ExternalClientDevice with 10 second watchdog interval
         super().__init__(
             device_config,
             loop,
-            enable_watchdog=True,
-            watchdog_interval=10,
-            reconnect_delay=5,
+            enable_watchdog=False,
             max_reconnect_attempts=None,
             config_manager=config_manager,
         )
@@ -106,8 +103,7 @@ class SamsungTv(ExternalClientDevice):
         - Older TVs maintain connection for ~65 seconds after power off
         Use get_power_state() or the state property for actual power status.
         """
-        self.get_power_state()
-        return True
+        return self._client is not None and self._client.is_alive()
 
     @property
     def source_list(self) -> list[str]:
@@ -197,6 +193,11 @@ class SamsungTv(ExternalClientDevice):
                 self.get_entity_id(),
                 {MediaAttr.STATE: PowerState.OFF},
             )
+            self.events.emit(
+                DeviceEvents.UPDATE,
+                create_entity_id(EntityTypes.REMOTE, self.identifier),
+                {MediaAttr.STATE: PowerState.OFF},
+            )
             return
 
         # Update token if it changed during connection
@@ -241,10 +242,31 @@ class SamsungTv(ExternalClientDevice):
         """
         Disconnect from Samsung.
 
-        The base class handles stopping the watchdog and calling disconnect_client().
+        Override base class to emit OFF state instead of DISCONNECTED.
+        For a TV, disconnecting means it's off, not unavailable.
         """
         _LOG.debug("[%s] Disconnecting from device", self.log_id)
-        await super().disconnect()
+
+        # Disconnect the client
+        if self._client:
+            with contextlib.suppress(Exception):
+                await self.disconnect_client()
+            self._client = None
+
+        self._is_connected = False
+        self._power_state = PowerState.OFF
+
+        # Emit OFF state for both entities instead of DISCONNECTED
+        self.events.emit(
+            DeviceEvents.UPDATE,
+            self.get_entity_id(),
+            {MediaAttr.STATE: PowerState.OFF},
+        )
+        self.events.emit(
+            DeviceEvents.UPDATE,
+            create_entity_id(EntityTypes.REMOTE, self.identifier),
+            {MediaAttr.STATE: PowerState.OFF},
+        )
         _LOG.debug("[%s] Disconnected", self.log_id)
 
     async def close(self) -> None:
