@@ -269,7 +269,6 @@ class SamsungTv(ExternalClientDevice):
 
         if not self._client.is_alive():
             _LOG.debug("[%s] Connection lost, reconnecting", self.log_id)
-            # Clean up old client before reconnecting (like main branch did)
             with contextlib.suppress(Exception):
                 await self._client.close()
             self._client = None
