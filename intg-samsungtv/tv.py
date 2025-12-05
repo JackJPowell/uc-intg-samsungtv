@@ -53,7 +53,7 @@ class SamsungTv(ExternalClientDevice):
             enable_watchdog=True,
             watchdog_interval=10,
             reconnect_delay=5,
-            max_reconnect_attempts=0,  # Infinite retries
+            max_reconnect_attempts=None,
             config_manager=config_manager,
         )
         self._mac_address: str = device_config.mac_address
@@ -166,7 +166,9 @@ class SamsungTv(ExternalClientDevice):
 
         Called by base class when connecting.
         """
-        _LOG.debug("[%s] Creating client for %s", self.log_id, self._device_config.address)
+        _LOG.debug(
+            "[%s] Creating client for %s", self.log_id, self._device_config.address
+        )
         return SamsungTVWSAsyncRemote(
             host=self._device_config.address,
             port=8002,
@@ -181,8 +183,20 @@ class SamsungTv(ExternalClientDevice):
         Connect and set up the Samsung TV client.
 
         Called by base class after create_client().
+        Note: We don't raise exceptions here because a TV that doesn't respond
+        is simply OFF, not in an error state. The watchdog will keep trying.
         """
-        await self._client.start_listening(self.handle_remote_event)
+        try:
+            await self._client.start_listening(self.handle_remote_event)
+        except Exception as err:  # pylint: disable=broad-exception-caught
+            _LOG.debug("[%s] Could not connect (TV likely off): %s", self.log_id, err)
+            self._power_state = PowerState.OFF
+            self.events.emit(
+                DeviceEvents.UPDATE,
+                self.get_entity_id(),
+                {MediaAttr.STATE: PowerState.OFF},
+            )
+            return
 
         # Update token if it changed during connection
         if self._client.token and self._client.token != self._device_config.token:
@@ -191,9 +205,16 @@ class SamsungTv(ExternalClientDevice):
             if self._config_manager:
                 self._config_manager.update(self._device_config)
 
-        # Verify connection
+        # Verify connection - if not alive, TV is just off
         if not self._client.is_alive():
-            raise ConnectionError("Failed to establish WebSocket connection")
+            _LOG.debug("[%s] Connection not alive, TV is off", self.log_id)
+            self._power_state = PowerState.OFF
+            self.events.emit(
+                DeviceEvents.UPDATE,
+                self.get_entity_id(),
+                {MediaAttr.STATE: PowerState.OFF},
+            )
+            return
 
         # Get initial state and fetch app list
         self.get_power_state()
