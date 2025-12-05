@@ -106,7 +106,8 @@ class SamsungTv(ExternalClientDevice):
         - Older TVs maintain connection for ~65 seconds after power off
         Use get_power_state() or the state property for actual power status.
         """
-        return self._client is not None and self._client.is_alive()
+        self.get_power_state()
+        return True
 
     @property
     def source_list(self) -> list[str]:
