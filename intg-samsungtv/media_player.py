@@ -6,22 +6,16 @@ Media-player entity functions.
 
 import logging
 from typing import Any
-import asyncio
+
 import ucapi
-import ucapi.api as uc
-
-import tv
-from config import SamsungDevice, create_entity_id
-from const import SimpleCommands
-from ucapi import MediaPlayer, media_player, EntityTypes
-from ucapi.media_player import DeviceClasses, Attributes
-
-_LOOP = asyncio.new_event_loop()
-asyncio.set_event_loop(_LOOP)
+from const import SamsungConfig, SimpleCommands
+from tv import SamsungTv
+from ucapi import EntityTypes, MediaPlayer, media_player
+from ucapi.media_player import Attributes, DeviceClasses
+from ucapi_framework import create_entity_id
 
 _LOG = logging.getLogger(__name__)
-api = uc.IntegrationAPI(_LOOP)
-_configured_devices: dict[str, tv.SamsungTv] = {}
+
 
 features = [
     media_player.Features.ON_OFF,
@@ -45,11 +39,11 @@ features = [
 class SamsungMediaPlayer(MediaPlayer):
     """Representation of a Samsung MediaPlayer entity."""
 
-    def __init__(self, config_device: SamsungDevice, device: tv.SamsungTv):
+    def __init__(self, config_device: SamsungConfig, device: SamsungTv):
         """Initialize the class."""
         self._device = device
         _LOG.debug("SamsungMediaPlayer init")
-        entity_id = create_entity_id(config_device.identifier, EntityTypes.MEDIA_PLAYER)
+        entity_id = create_entity_id(EntityTypes.MEDIA_PLAYER, config_device.identifier)
         self.config = config_device
         self.options = (
             [
@@ -193,9 +187,3 @@ class SamsungMediaPlayer(MediaPlayer):
             _LOG.error("Error executing command %s: %s", cmd_id, ex)
             return ucapi.StatusCodes.TIMEOUT
         return ucapi.StatusCodes.OK
-
-
-def _get_cmd_param(name: str, params: dict[str, Any] | None) -> str | bool | None:
-    if params is None:
-        return None
-    return params.get(name)
