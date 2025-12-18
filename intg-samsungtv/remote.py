@@ -122,6 +122,9 @@ class SamsungRemote(Remote):
             if cmd_id == Commands.SEND_CMD:
                 if command.startswith("app_"):
                     await client.launch_app(app_id=command[4:])
+                if command.startswith("button_"):
+                    command = command.upper()
+                    await client.send_key(command[7:], hold_time=hold)
                 else:
                     match command:
                         case SimpleCommands.STANDBY | SimpleCommands.STANDBY.value:
@@ -171,6 +174,16 @@ class SamsungRemote(Remote):
                             | media_player.Commands.CURSOR_RIGHT.value
                         ):
                             await client.send_key("KEY_RIGHT", hold_time=hold)
+                        case (
+                            media_player.Commands.FAST_FORWARD
+                            | media_player.Commands.FAST_FORWARD.value
+                        ):
+                            await client.send_key("KEY_FF", hold_time=hold)
+                        case (
+                            media_player.Commands.REWIND
+                            | media_player.Commands.REWIND.value
+                        ):
+                            await client.send_key("KEY_REWIND", hold_time=hold)
                         case (
                             media_player.Commands.CURSOR_ENTER
                             | media_player.Commands.CURSOR_ENTER.value

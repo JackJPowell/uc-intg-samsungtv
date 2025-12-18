@@ -33,6 +33,8 @@ features = [
     media_player.Features.SETTINGS,
     media_player.Features.PLAY_PAUSE,
     media_player.Features.COLOR_BUTTONS,
+    media_player.Features.FAST_FORWARD,
+    media_player.Features.REWIND,
 ]
 
 
@@ -115,6 +117,10 @@ class SamsungMediaPlayer(MediaPlayer):
                     await self._device.send_key("KEY_CHDOWN")
                 case media_player.Commands.CHANNEL_UP:
                     await self._device.send_key("KEY_CHUP")
+                case media_player.Commands.FAST_FORWARD:
+                    await self._device.send_key("KEY_FF")
+                case media_player.Commands.REWIND:
+                    await self._device.send_key("KEY_REWIND")
                 case media_player.Commands.CURSOR_UP:
                     await self._device.send_key("KEY_UP")
                 case media_player.Commands.CURSOR_DOWN:
