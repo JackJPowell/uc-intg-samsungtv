@@ -20,6 +20,15 @@ class SamsungConfig:
     """IP Address of device"""
     mac_address: str | None = None
     """MAC Address of device"""
+
+    smartthings_access_token: str | None = None
+    """OAuth Access Token for SmartThings Cloud API (optional - enables input source control)."""
+    smartthings_refresh_token: str | None = None
+    """OAuth Refresh Token for SmartThings Cloud API (optional - used to renew access token)."""
+    smartthings_token_expires: int | None = None
+    """Unix timestamp when the OAuth access token expires (optional)."""
+    supports_power_on_by_ocf: bool = False
+    """True if the TV supports network-based wake via SmartThings (no WOL needed)."""
     reports_power_state: bool = False
     """True if the device reports power state via REST API (Frame TVs and some newer models)."""
     supports_art_mode: bool = False
@@ -55,3 +64,12 @@ SAMSUNG_STATE_MAPPING = {
     States.UNAVAILABLE: MediaStates.UNAVAILABLE,
     States.UNKNOWN: MediaStates.UNKNOWN,
 }
+
+"""SmartThings OAuth constants."""
+
+# OAuth Configuration using Cloudflare Worker proxy
+# Worker keeps client credentials server-side for security
+SMARTTHINGS_WORKER_BASE_URL = "https://smartthings.jackattack51.workers.dev"
+SMARTTHINGS_WORKER_AUTHORIZE = f"{SMARTTHINGS_WORKER_BASE_URL}/authorize"
+SMARTTHINGS_WORKER_CALLBACK = f"{SMARTTHINGS_WORKER_BASE_URL}/oauth/callback"
+SMARTTHINGS_WORKER_REFRESH = f"{SMARTTHINGS_WORKER_BASE_URL}/refresh"

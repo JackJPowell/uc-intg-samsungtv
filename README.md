@@ -90,6 +90,47 @@ Remote Commands:
 
 - For some devices a full list of applications may not be available. By using the send_command option and adding APP_<app_id> you can invoke the application, i.e. to launch Youtube use APP_111299001912. A list of known app_ids to try are available [here](https://github.com/tavicu/homebridge-samsung-tizen/issues/26#issuecomment-447424879)
 
+### SmartThings Cloud Integration (Optional)
+
+The integration supports **optional** SmartThings Cloud API integration for features not available via the local WebSocket API:
+
+**Benefits:**
+- **Input Source Control**: Set HDMI inputs (HDMI1, HDMI2, HDMI3, HDMI4) which are not supported by the local API
+- Automatic Wake-on-LAN when needed (TV must be network-connected for SmartThings to reach it)
+
+**Setup:**
+
+The integration uses **OAuth 2.0** authentication with SmartThings for secure, long-term access. OAuth credentials are securely stored in a Cloudflare Worker, so you don't need to create your own SmartThings app!
+
+#### Integration Setup
+
+When adding your Samsung TV to the Remote:
+
+1. **Initial Device Setup**: Enter your TV's IP address and complete the initial pairing
+
+2. **Enable SmartThings** (if you want HDMI input control):
+   - Check the "Authorize SmartThings" box
+   - Click Next
+
+3. **Authorization**:
+   - Click the authorization URL shown in the setup screen
+   - Sign in with your Samsung account
+   - Click "Authorize" to grant access
+   - You'll see a success page with your tokens
+   - **Copy the Access Token and Refresh Token** from the page
+   - Paste them back into the Remote setup screen
+   - Click Next to complete setup
+
+5. **Automatic Token Renewal**: 
+   - The integration automatically refreshes your access token well before it expires
+   - Refresh happens proactively (when token has 12 hours or less remaining) to ensure the device is awake
+   - You only need to authorize once - tokens renew indefinitely
+   - Your OAuth credentials are stored securely in the integration config
+
+**Security Note:** Each user creates their own OAuth app with their own credentials. Your Client Secret is stored locally in your Remote's configuration and is never shared or exposed publicly.
+
+**Note:** SmartThings integration is **completely optional**. The local WebSocket API works for all other functionality (power, volume, navigation, app launching, etc.). Only add SmartThings if you need input source control.
+
 ## Usage
 
 ### Docker
