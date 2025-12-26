@@ -6,6 +6,7 @@ This module implements the Samsung TV communication of the Remote Two integratio
 import asyncio
 import contextlib
 import logging
+import time
 from asyncio import AbstractEventLoop
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -13,7 +14,11 @@ from typing import Any, cast
 
 import aiohttp
 import wakeonlan
-from const import SamsungConfig
+from const import (
+    SamsungConfig,
+    SMARTTHINGS_WORKER_REFRESH,
+)
+from pysmartthings import SmartThings
 from samsungtvws import SamsungTVWS
 from samsungtvws.async_remote import SamsungTVWSAsyncRemote
 from samsungtvws.async_rest import SamsungTVAsyncRest
@@ -60,6 +65,12 @@ class SamsungTv(ExternalClientDevice):
         self._active_source: str = ""
         self._power_on_task: asyncio.Task | None = None
         self._power_state: PowerState | None = None
+
+        # SmartThings Cloud API client (optional - for advanced features like input source)
+        self._smartthings_api: SmartThings | None = None
+        self._smartthings_device_id: str | None = None
+        self._last_smartthings_poll: datetime | None = None
+        self._smartthings_capabilities: set[str] = set()
 
     @property
     def identifier(self) -> str:
@@ -116,7 +127,7 @@ class SamsungTv(ExternalClientDevice):
         return self._active_source
 
     @property
-    def attributes(self) -> dict[str, any]:
+    def attributes(self) -> dict[str, Any]:
         """Return the device attributes."""
         updated_data = {
             MediaAttr.STATE: self.state,
@@ -229,6 +240,123 @@ class SamsungTv(ExternalClientDevice):
         await asyncio.sleep(1)
         await self._update_app_list()
 
+        # Initialize SmartThings API client if OAuth token is configured
+        if self._device_config.smartthings_access_token and not self._smartthings_api:
+            await self._init_smartthings_client()
+
+    async def _init_smartthings_client(self) -> None:
+        """
+        Initialize SmartThings API client and discover the TV device.
+
+        Called during connect_client if SmartThings OAuth token is configured.
+        Automatically refreshes tokens aggressively for battery-powered devices.
+        """
+        if not self._device_config.smartthings_access_token:
+            # No SmartThings authentication configured
+            return
+
+        # Aggressive token refresh strategy for battery-powered devices
+        # Refresh if token expires within 12 hours (50% of 24hr token lifetime)
+        # This ensures we refresh whenever the device is awake
+        if self._device_config.smartthings_token_expires:
+            time_until_expiry = (
+                self._device_config.smartthings_token_expires - time.time()
+            )
+            if time_until_expiry <= 43200:  # 12 hours in seconds
+                _LOG.info(
+                    "[%s] SmartThings OAuth token expires in %.1f hours, refreshing proactively",
+                    self.log_id,
+                    time_until_expiry / 3600,
+                )
+                await self._refresh_smartthings_token()
+
+        token = self._device_config.smartthings_access_token
+
+        try:
+            # Create aiohttp session for SmartThings API
+            session = aiohttp.ClientSession()
+
+            self._smartthings_api = SmartThings(
+                session=session,
+                token=token,
+            )
+            _LOG.debug(
+                "[%s] SmartThings API client initialized", self.log_id
+            )  # Discover the device in SmartThings
+            await self._discover_smartthings_device()
+        except Exception as ex:  # pylint: disable=broad-exception-caught
+            _LOG.warning(
+                "[%s] Failed to initialize SmartThings client: %s", self.log_id, ex
+            )
+            self._smartthings_api = None
+
+    async def _refresh_smartthings_token(self) -> None:
+        """
+        Refresh SmartThings OAuth access token using refresh token via worker.
+
+        Updates the device config with new access token and expiration time.
+        """
+        if not self._device_config.smartthings_refresh_token:
+            _LOG.error(
+                "[%s] Cannot refresh token: no refresh token available", self.log_id
+            )
+            return
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Use Cloudflare Worker to refresh token (keeps client credentials secure)
+                data = {
+                    "refresh_token": self._device_config.smartthings_refresh_token,
+                }
+
+                async with session.post(
+                    SMARTTHINGS_WORKER_REFRESH,
+                    json=data,
+                    headers={"Content-Type": "application/json"},
+                ) as response:
+                    response_text = await response.text()
+                    if response.status != 200:
+                        _LOG.error(
+                            "[%s] Failed to refresh SmartThings token (status %d): %s",
+                            self.log_id,
+                            response.status,
+                            response_text,
+                        )
+                        return
+
+                    token_data = await response.json()
+                    access_token = token_data.get("access_token")
+                    refresh_token = token_data.get("refresh_token")
+                    expires_in = token_data.get("expires_in", 86400)  # Default 24 hours
+
+                    if not access_token:
+                        _LOG.error(
+                            "[%s] No access token in refresh response", self.log_id
+                        )
+                        return
+
+                    # Update device config with new tokens
+                    self._device_config.smartthings_access_token = access_token
+                    if refresh_token:
+                        # New refresh token may be provided
+                        self._device_config.smartthings_refresh_token = refresh_token
+                    self._device_config.smartthings_token_expires = (
+                        int(time.time()) + expires_in
+                    )
+
+                    # Save updated config
+                    if self._config_manager:
+                        self._config_manager.update(self._device_config)
+
+                    _LOG.info(
+                        "[%s] Successfully refreshed SmartThings OAuth token (expires in %d seconds)",
+                        self.log_id,
+                        expires_in,
+                    )
+
+        except Exception as ex:  # pylint: disable=broad-exception-caught
+            _LOG.error("[%s] Error refreshing SmartThings token: %s", self.log_id, ex)
+
     async def disconnect_client(self) -> None:
         """
         Disconnect the Samsung TV client.
@@ -237,6 +365,11 @@ class SamsungTv(ExternalClientDevice):
         """
         if self._client:
             await self._client.close()
+
+        # Clean up SmartThings client
+        if self._smartthings_api:
+            self._smartthings_api = None
+            self._smartthings_device_id = None
 
     async def disconnect(self) -> None:
         """
@@ -296,6 +429,12 @@ class SamsungTv(ExternalClientDevice):
                 await self._client.close()
             self._client = None
             await self.connect()
+        else:
+            # Connection is alive - poll SmartThings for status updates if available
+            if self._smartthings_api and self._power_state == PowerState.ON:
+                update = await self.query_smartthings_status()
+                if update:
+                    self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
 
     async def _process_update(self, data: dict[str, Any]) -> None:  # pylint: disable=too-many-branches
         """Process device state updates."""
@@ -370,7 +509,7 @@ class SamsungTv(ExternalClientDevice):
         )
         self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
 
-    async def _get_app_list_via_remote(self) -> list[str, str]:
+    async def _get_app_list_via_remote(self) -> dict[str, str]:
         if not self.is_connected:
             return {}
         try:
@@ -378,10 +517,11 @@ class SamsungTv(ExternalClientDevice):
                 ChannelEmitCommand.get_installed_app()
             )
             if app_list is None:
-                return []
+                return {}
         except Exception:  # pylint: disable=broad-exception-caught
             _LOG.exception("[%s] App list: remote error", self.log_id)
-            return []
+            return {}
+        return {}
 
     async def launch_app(
         self, app_id: str | None = None, app_name: str | None = None
@@ -396,20 +536,34 @@ class SamsungTv(ExternalClientDevice):
             if app_name == "TV":
                 await self.send_key("KEY_TV")
                 return
-            elif app_name == "HDMI":
-                await self.send_key("KEY_HDMI")
-                return
-            elif app_name == "HDMI1":
-                await self.send_key("KEY_HDMI1")
-                return
-            elif app_name == "HDMI2":
-                await self.send_key("KEY_HDMI2")
-                return
-            elif app_name == "HDMI3":
-                await self.send_key("KEY_HDMI3")
-                return
-            elif app_name == "HDMI4":
-                await self.send_key("KEY_HDMI4")
+            elif app_name in ["HDMI", "HDMI1", "HDMI2", "HDMI3", "HDMI4"]:
+                # Try SmartThings API first for HDMI inputs (local API doesn't support this)
+                if self._smartthings_api:
+                    _LOG.debug(
+                        "[%s] Using SmartThings API for HDMI input: %s",
+                        self.log_id,
+                        app_name,
+                    )
+                    success = await self.set_input_source_smartthings(app_name)
+                    if success:
+                        return
+                    _LOG.warning(
+                        "[%s] SmartThings failed for %s, falling back to KEY command",
+                        self.log_id,
+                        app_name,
+                    )
+
+                # Fallback to local KEY commands (may not work on all models)
+                if app_name == "HDMI":
+                    await self.send_key("KEY_HDMI")
+                elif app_name == "HDMI1":
+                    await self.send_key("KEY_HDMI1")
+                elif app_name == "HDMI2":
+                    await self.send_key("KEY_HDMI2")
+                elif app_name == "HDMI3":
+                    await self.send_key("KEY_HDMI3")
+                elif app_name == "HDMI4":
+                    await self.send_key("KEY_HDMI4")
                 return
             else:
                 # Get app_id from app list, with error handling
@@ -433,6 +587,13 @@ class SamsungTv(ExternalClientDevice):
                 )
                 await rest_api.rest_app_run(app_id)
 
+        # Query SmartThings for updated source after launching app
+        if self._smartthings_api:
+            await asyncio.sleep(1)  # Give app time to launch
+            update = await self.query_smartthings_status(force=True)
+            if update:
+                self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
+
     async def send_key(self, key: str, **kwargs: Any) -> None:
         """Send a key to the TV."""
         hold_time = kwargs.get("hold_time", None)  # in ms
@@ -443,6 +604,24 @@ class SamsungTv(ExternalClientDevice):
                 await self._client.send_command(SendRemoteKey.hold(key, hold_time))
             else:
                 await self._client.send_command(SendRemoteKey.click(key))
+
+            # Query SmartThings status after volume/playback keys for immediate feedback
+            if self._smartthings_api and key in [
+                "KEY_VOLUP",
+                "KEY_VOLDOWN",
+                "KEY_MUTE",
+                "KEY_PLAY",
+                "KEY_PAUSE",
+                "KEY_STOP",
+                "KEY_PLAYPAUSE",
+                "KEY_FF",
+                "KEY_REWIND",
+            ]:
+                # Small delay for TV to process command
+                await asyncio.sleep(0.3)
+                update = await self.query_smartthings_status(force=True)
+                if update:
+                    self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
             return
         _LOG.error(
             "[%s] Cannot send key '%s', TV is not connected (_client: %s)",
@@ -504,16 +683,48 @@ class SamsungTv(ExternalClientDevice):
             await self.send_key("KEY_POWER")
             self._power_state = PowerState.ON
         else:
-            # TV is completely off - need WOL
-            _LOG.debug("[%s] Device is OFF, initiating Wake-on-LAN", self.log_id)
-            self._end_of_power_on = datetime.utcnow() + timedelta(seconds=17)
-            self._power_on_task = asyncio.create_task(self.power_on_wol())
-            self._power_state = PowerState.ON
+            # TV is completely off - use SmartThings if available, otherwise WOL
+            if self._device_config.supports_power_on_by_ocf and self._smartthings_api:
+                _LOG.debug(
+                    "[%s] Device is OFF, using SmartThings to power on", self.log_id
+                )
+                success = await self.power_on_smartthings()
+                if success:
+                    self._power_state = PowerState.ON
+                else:
+                    # Fallback to WOL if SmartThings fails
+                    _LOG.warning(
+                        "[%s] SmartThings power on failed, falling back to WOL",
+                        self.log_id,
+                    )
+                    _LOG.debug(
+                        "[%s] Device is OFF, initiating Wake-on-LAN", self.log_id
+                    )
+                    self._end_of_power_on = datetime.utcnow() + timedelta(seconds=17)
+                    self._power_on_task = asyncio.create_task(self.power_on_wol())
+                    self._power_state = PowerState.ON
+            else:
+                # No SmartThings or doesn't support OCF power - use WOL
+                _LOG.debug("[%s] Device is OFF, initiating Wake-on-LAN", self.log_id)
+                self._end_of_power_on = datetime.utcnow() + timedelta(seconds=17)
+                self._power_on_task = asyncio.create_task(self.power_on_wol())
+                self._power_state = PowerState.ON
 
     async def _handle_power_off(self) -> None:
         """Handle turning the TV off."""
-        _LOG.debug("[%s] Sending KEY_POWER to turn off", self.log_id)
-        await self.send_key("KEY_POWER")
+        # Use SmartThings if available for more reliable power off
+        if self._smartthings_api and self._smartthings_device_id:
+            _LOG.debug("[%s] Using SmartThings to turn off", self.log_id)
+            success = await self.power_off_smartthings()
+            if not success:
+                # Fallback to KEY_POWER if SmartThings fails
+                _LOG.warning(
+                    "[%s] SmartThings power off failed, using KEY_POWER", self.log_id
+                )
+                await self.send_key("KEY_POWER")
+        else:
+            _LOG.debug("[%s] Sending KEY_POWER to turn off", self.log_id)
+            await self.send_key("KEY_POWER")
 
         if self.device_config.supports_art_mode:
             # Frame TVs with art mode - power off enters art mode/standby
@@ -574,7 +785,7 @@ class SamsungTv(ExternalClientDevice):
         update[MediaAttr.STATE] = self._power_state
         self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
 
-    def get_power_state(self) -> PowerState:
+    def get_power_state(self) -> None:
         """
         Return the power status of the device.
 
@@ -725,6 +936,443 @@ class SamsungTv(ExternalClientDevice):
             if rest:
                 rest.close()
 
+    async def _discover_smartthings_device(self) -> bool:
+        """
+        Discover the Samsung TV device in SmartThings.
+
+        Uses the device's MAC address to identify it in SmartThings.
+        Returns True if device was found, False otherwise.
+        """
+        if not self._smartthings_api:
+            return False
+
+        if not self._device_config.mac_address:
+            _LOG.warning(
+                "[%s] Cannot discover SmartThings device: MAC address not available",
+                self.log_id,
+            )
+            return False
+
+        try:
+            devices = await self._smartthings_api.devices()
+            # Match by MAC address
+            # SmartThings MAC addresses are typically uppercase without colons
+            mac_normalized = self._device_config.mac_address.replace(":", "").upper()
+
+            _LOG.debug(
+                "[%s] Searching for TV with MAC: %s (normalized: %s) among %d SmartThings devices",
+                self.log_id,
+                self._device_config.mac_address,
+                mac_normalized,
+                len(devices),
+            )
+
+            for device in devices:
+                # Check device_network_id for MAC match (if available)
+                device_mac = (
+                    getattr(device, "device_network_id", "").replace(":", "").upper()
+                )
+                device_label = getattr(device, "label", "")
+
+                _LOG.debug(
+                    "[%s] Checking device: %s (label: %s, device_network_id: %s)",
+                    self.log_id,
+                    device.device_id,
+                    device_label,
+                    getattr(device, "device_network_id", "N/A"),
+                )
+
+                # Try matching by device_network_id (MAC) first
+                if device_mac and device_mac == mac_normalized:
+                    self._smartthings_device_id = device.device_id
+                    _LOG.debug(
+                        "[%s] Found SmartThings device by MAC: %s (ID: %s)",
+                        self.log_id,
+                        device_label,
+                        device.device_id,
+                    )
+                    return True
+
+                # Fallback: match by device name (label)
+                # SmartThings often prefixes with [TV]
+                if device_label:
+                    # Remove [TV] prefix and compare
+                    label_clean = device_label.replace("[TV] ", "").strip()
+                    if label_clean == self._device_config.name:
+                        self._smartthings_device_id = device.device_id
+                        _LOG.info(
+                            "[%s] Found SmartThings device by name: %s (ID: %s)",
+                            self.log_id,
+                            device_label,
+                            device.device_id,
+                        )
+
+                        # Log device capabilities and type to understand what's available
+                        _LOG.debug(
+                            "[%s] Device type: %s, capabilities: %s",
+                            self.log_id,
+                            getattr(device, "type", "UNKNOWN"),
+                            [cap for cap in getattr(device, "capabilities", [])],
+                        )
+
+                        # Check if TV supports power on via OCF (network wake without WOL)
+                        # Many Samsung TVs are OCF type but don't actually support network wake
+                        # from powered-off state. We need to check the actual capability value.
+                        device_type = getattr(device, "type", None)
+                        capabilities = getattr(device, "capabilities", [])
+
+                        # Log comprehensive device information for debugging
+                        _LOG.info(
+                            "[%s] SmartThings device details - Type: %s, Device ID: %s",
+                            self.log_id,
+                            device_type,
+                            device.device_id,
+                        )
+                        _LOG.debug(
+                            "[%s] All capabilities: %s",
+                            self.log_id,
+                            capabilities,
+                        )
+                        _LOG.debug(
+                            "[%s] Has supportsPowerOnByOcf capability: %s",
+                            self.log_id,
+                            "samsungvd.supportsPowerOnByOcf" in capabilities,
+                        )
+
+                        # Conservative approach: Default to NOT supporting network power on
+                        # Only enable it if we can explicitly verify it's supported
+                        supports_network_power = False
+
+                        # Check device.status directly (don't call refresh() as it returns None)
+                        # device.status already contains the current status data
+                        try:
+                            if hasattr(device, "status") and device.status:
+                                status = device.status
+
+                                # Log all available status attributes for debugging
+                                if hasattr(status, "attributes"):
+                                    _LOG.debug(
+                                        "[%s] All status attributes: %s",
+                                        self.log_id,
+                                        list(status.attributes.keys()),
+                                    )
+
+                                    # Try to get the supportsPowerOnByOcf attribute value
+                                    ocf_value = status.attributes.get(
+                                        "supportsPowerOnByOcf"
+                                    )
+
+                                    if ocf_value:
+                                        # Log detailed information about the OCF attribute
+                                        _LOG.info(
+                                            "[%s] supportsPowerOnByOcf found - Value: %s, Unit: %s, Data: %s",
+                                            self.log_id,
+                                            getattr(ocf_value, "value", None),
+                                            getattr(ocf_value, "unit", None),
+                                            getattr(ocf_value, "data", None),
+                                        )
+
+                                        # Only enable if the attribute has a truthy value
+                                        # TVs that support it will have this populated with data
+                                        # TVs that don't support it will have it empty/None
+                                        if (
+                                            hasattr(ocf_value, "value")
+                                            and ocf_value.value
+                                        ):
+                                            supports_network_power = True
+                                            _LOG.info(
+                                                "[%s] OCF power on IS SUPPORTED (value=%s) - will use SmartThings for power",
+                                                self.log_id,
+                                                ocf_value.value,
+                                            )
+                                        else:
+                                            _LOG.info(
+                                                "[%s] OCF power on NOT supported (value=%s) - will use WOL",
+                                                self.log_id,
+                                                getattr(ocf_value, "value", None),
+                                            )
+                                    else:
+                                        _LOG.info(
+                                            "[%s] supportsPowerOnByOcf attribute not found in status - will use WOL",
+                                            self.log_id,
+                                        )
+                                else:
+                                    _LOG.warning(
+                                        "[%s] Device status has no attributes",
+                                        self.log_id,
+                                    )
+                            else:
+                                _LOG.warning(
+                                    "[%s] Device has no status object",
+                                    self.log_id,
+                                )
+                        except Exception as ex:
+                            _LOG.warning(
+                                "[%s] Error checking supportsPowerOnByOcf: %s",
+                                self.log_id,
+                                ex,
+                                exc_info=True,
+                            )
+
+                        if supports_network_power:
+                            self._device_config.supports_power_on_by_ocf = True
+                            _LOG.info(
+                                "[%s] TV supports network-based power on - will use SmartThings for power control",
+                                self.log_id,
+                            )
+                        else:
+                            self._device_config.supports_power_on_by_ocf = False
+                            _LOG.info(
+                                "[%s] TV does not support network-based power on - will use WOL for power on",
+                                self.log_id,
+                            )
+
+                        # Save the updated config to disk so it persists across restarts
+                        if self._config_manager:
+                            self._config_manager.update(self._device_config)
+                            _LOG.debug(
+                                "[%s] Saved supports_power_on_by_ocf setting to config",
+                                self.log_id,
+                            )
+
+                        return True
+
+            _LOG.warning(
+                "[%s] SmartThings device not found for MAC: %s (normalized: %s)",
+                self.log_id,
+                self._device_config.mac_address,
+                mac_normalized,
+            )
+            return False
+        except Exception as ex:  # pylint: disable=broad-exception-caught
+            _LOG.error("[%s] Error discovering SmartThings device: %s", self.log_id, ex)
+            return False
+
+    async def _get_smartthings_device(self):
+        """
+        Get the SmartThings device object.
+
+        Returns the device object if available, None otherwise.
+        Handles API availability check, device discovery, and device lookup.
+        """
+        if not self._smartthings_api:
+            return None
+
+        if not self._smartthings_device_id:
+            if not await self._discover_smartthings_device():
+                return None
+
+        try:
+            devices = await self._smartthings_api.devices()
+            device = next(
+                (d for d in devices if d.device_id == self._smartthings_device_id), None
+            )
+
+            if not device:
+                _LOG.error("[%s] SmartThings device object not found", self.log_id)
+                return None
+
+            return device
+        except Exception as ex:  # pylint: disable=broad-exception-caught
+            _LOG.error("[%s] Error getting SmartThings device: %s", self.log_id, ex)
+            return None
+
+    async def set_input_source_smartthings(self, source: str) -> bool:
+        """
+        Set input source using SmartThings Cloud API.
+
+        This is a workaround for the limitation in the local WebSocket API
+        which doesn't support setting input sources on Samsung TVs.
+
+        Note: TV must be powered on and network-connected for SmartThings
+        to reach it. Use WOL if needed before calling this.
+        """
+        # Ensure TV is awake (SmartThings needs network connection)
+        if self._power_state != PowerState.ON:
+            _LOG.debug(
+                "[%s] TV is off, waking via WOL before SmartThings command", self.log_id
+            )
+            await self._handle_power_on()
+            # Wait for TV to fully wake up
+            await asyncio.sleep(3)
+
+        device = await self._get_smartthings_device()
+        if not device:
+            return False
+
+        try:
+            # Execute command to set input source
+            # SmartThings API uses: device.command(component, capability, command, args)
+            await device.command(
+                "main",  # component
+                "samsungvd.mediaInputSource",  # capability
+                "setInputSource",  # command
+                [source],  # args
+            )
+            _LOG.debug("[%s] SmartThings: Set input source to %s", self.log_id, source)
+            self._active_source = source
+
+            # Query status to confirm and get any other updates
+            await asyncio.sleep(0.5)
+            update = await self.query_smartthings_status(force=True)
+            if update:
+                self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
+
+            return True
+        except Exception as ex:  # pylint: disable=broad-exception-caught
+            _LOG.error(
+                "[%s] Error setting input source via SmartThings: %s", self.log_id, ex
+            )
+            return False
+
+    async def power_on_smartthings(self) -> bool:
+        """
+        Power on the TV using SmartThings Cloud API.
+
+        Only works if the TV supports power on via OCF (network-based wake).
+        Returns True if successful, False otherwise.
+        """
+        if not self._device_config.supports_power_on_by_ocf:
+            _LOG.debug("[%s] TV does not support SmartThings power on", self.log_id)
+            return False
+
+        device = await self._get_smartthings_device()
+        if not device:
+            return False
+
+        try:
+            # Use the switch capability to turn on
+            await device.command(
+                "main",  # component
+                "switch",  # capability
+                "on",  # command
+                [],  # no args
+            )
+            _LOG.info("[%s] SmartThings: Powered on TV", self.log_id)
+            return True
+        except Exception as ex:  # pylint: disable=broad-exception-caught
+            _LOG.error("[%s] Error powering on via SmartThings: %s", self.log_id, ex)
+            return False
+
+    async def power_off_smartthings(self) -> bool:
+        """
+        Power off the TV using SmartThings Cloud API.
+
+        Returns True if successful, False otherwise.
+        """
+        device = await self._get_smartthings_device()
+        if not device:
+            return False
+
+        try:
+            # Use the switch capability to turn off
+            await device.command(
+                "main",  # component
+                "switch",  # capability
+                "off",  # command
+                [],  # no args
+            )
+            _LOG.info("[%s] SmartThings: Powered off TV", self.log_id)
+            return True
+        except Exception as ex:  # pylint: disable=broad-exception-caught
+            _LOG.error("[%s] Error powering off via SmartThings: %s", self.log_id, ex)
+            return False
+
+    async def send_smartthings_command(
+        self, command: str, query_after: bool = False, delay: float = 0.5
+    ) -> bool:
+        """
+        Send a media control command via SmartThings API.
+        
+        Args:
+            command: The command name (e.g., 'channel_up', 'play', 'pause')
+            query_after: Whether to query status after the command
+            delay: Seconds to wait before querying status (if query_after is True)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        device = await self._get_smartthings_device()
+        if not device:
+            return False
+
+        try:
+            match command:
+                case "channel_up":
+                    await device.channel_up()
+                    _LOG.debug("[%s] SmartThings: Channel up", self.log_id)
+                case "channel_down":
+                    await device.channel_down()
+                    _LOG.debug("[%s] SmartThings: Channel down", self.log_id)
+                case "volume_up":
+                    await device.volume_up()
+                    _LOG.debug("[%s] SmartThings: Volume up", self.log_id)
+                case "volume_down":
+                    await device.volume_down()
+                    _LOG.debug("[%s] SmartThings: Volume down", self.log_id)
+                case "mute":
+                    await device.mute()
+                    _LOG.debug("[%s] SmartThings: Mute", self.log_id)
+                case "unmute":
+                    await device.unmute()
+                    _LOG.debug("[%s] SmartThings: Unmute", self.log_id)
+                case "play":
+                    await device.play()
+                    _LOG.debug("[%s] SmartThings: Play", self.log_id)
+                case "pause":
+                    await device.pause()
+                    _LOG.debug("[%s] SmartThings: Pause", self.log_id)
+                case "stop":
+                    await device.stop()
+                    _LOG.debug("[%s] SmartThings: Stop", self.log_id)
+                case "fast_forward":
+                    await device.fast_forward()
+                    _LOG.debug("[%s] SmartThings: Fast forward", self.log_id)
+                case "rewind":
+                    await device.rewind()
+                    _LOG.debug("[%s] SmartThings: Rewind", self.log_id)
+                case "menu" | "tools":
+                    # Try using the samsungvd.remoteControl capability with sendKey command
+                    await device.command("main", "samsungvd.remoteControl", "sendKey", ["TOOLS"])
+                    _LOG.debug("[%s] SmartThings: Sent TOOLS key", self.log_id)
+                case _:
+                    _LOG.warning("[%s] Unknown SmartThings command: %s", self.log_id, command)
+                    return False
+
+            # Query status to get updated info if requested
+            if query_after:
+                await asyncio.sleep(delay)
+                update = await self.query_smartthings_status(force=True)
+                if update:
+                    self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
+
+            return True
+        except Exception as ex:  # pylint: disable=broad-exception-caught
+            _LOG.error(
+                "[%s] Error sending %s via SmartThings: %s", self.log_id, command, ex
+            )
+            return False
+
+    async def channel_up_smartthings(self) -> bool:
+        """Send channel up command via SmartThings API."""
+        return await self.send_smartthings_command("channel_up", query_after=True)
+
+    async def channel_down_smartthings(self) -> bool:
+        """Send channel down command via SmartThings API."""
+        return await self.send_smartthings_command("channel_down", query_after=True)
+
+    async def fast_forward_smartthings(self) -> bool:
+        """Send fast forward command via SmartThings API."""
+        return await self.send_smartthings_command("fast_forward")
+
+    async def rewind_smartthings(self) -> bool:
+        """Send rewind command via SmartThings API."""
+        return await self.send_smartthings_command("rewind")
+
+    async def send_menu_smartthings(self) -> bool:
+        """Send menu/tools command via SmartThings API."""
+        return await self.send_smartthings_command("menu")
+
     def toggle_art_mode(self, state: bool) -> None:
         """Toggle ART mode on the TV."""
         rest = None
@@ -746,6 +1394,189 @@ class SamsungTv(ExternalClientDevice):
         finally:
             if rest:
                 rest.close()
+
+    async def query_smartthings_status(self, force: bool = False) -> dict[str, Any]:
+        """
+        Query comprehensive status from SmartThings API.
+
+        Retrieves media playback state, volume, input source, mute status,
+        and other attributes if available.
+
+        Args:
+            force: If True, ignore polling interval and query immediately
+
+        Returns:
+            Dictionary with MediaAttr keys and values to emit
+        """
+        update = {}
+
+        if not self._smartthings_api or not self._smartthings_device_id:
+            return update
+
+        # Rate limiting: only poll every 5 seconds unless forced
+        if not force and self._last_smartthings_poll:
+            time_since_poll = (
+                datetime.utcnow() - self._last_smartthings_poll
+            ).total_seconds()
+            if time_since_poll < 5:
+                _LOG.debug(
+                    "[%s] Skipping SmartThings poll (last poll %.1fs ago)",
+                    self.log_id,
+                    time_since_poll,
+                )
+                return update
+
+        try:
+            # Get the device object to access its status
+            devices = await self._smartthings_api.devices()
+            device = next(
+                (d for d in devices if d.device_id == self._smartthings_device_id), None
+            )
+
+            if not device or not hasattr(device, "status") or not device.status:
+                _LOG.warning(
+                    "[%s] SmartThings device or status not available", self.log_id
+                )
+                return update
+
+            status = device.status
+            self._last_smartthings_poll = datetime.utcnow()
+
+            if not hasattr(status, "attributes"):
+                _LOG.warning("[%s] Device status has no attributes", self.log_id)
+                return update
+
+            attributes = status.attributes
+
+            # Log available attributes for debugging (only on first poll)
+            if not self._smartthings_capabilities:
+                self._smartthings_capabilities = set(attributes.keys())
+                _LOG.info(
+                    "[%s] SmartThings attributes detected: %s",
+                    self.log_id,
+                    ", ".join(sorted(self._smartthings_capabilities)),
+                )
+                # Also log actual values for debugging
+                _LOG.debug("[%s] SmartThings attribute values:", self.log_id)
+                for attr_name, attr_obj in attributes.items():
+                    if hasattr(attr_obj, "value"):
+                        _LOG.debug("  %s = %s", attr_name, attr_obj.value)
+
+            # Volume
+            volume_attr = attributes.get("volume")
+            if volume_attr and hasattr(volume_attr, "value"):
+                update[MediaAttr.VOLUME] = int(volume_attr.value)
+                _LOG.debug(
+                    "[%s] SmartThings volume: %s", self.log_id, volume_attr.value
+                )
+
+            # Mute status
+            mute_attr = attributes.get("mute")
+            if mute_attr and hasattr(mute_attr, "value"):
+                # Convert "muted"/"unmuted" to boolean
+                is_muted = mute_attr.value == "muted"
+                update[MediaAttr.MUTED] = is_muted
+                _LOG.debug("[%s] SmartThings mute: %s", self.log_id, is_muted)
+
+            # Media playback state
+            playback_attr = attributes.get("playbackStatus")
+            if playback_attr and hasattr(playback_attr, "value"):
+                playback_state = playback_attr.value
+                _LOG.debug("[%s] SmartThings playback: %s", self.log_id, playback_state)
+                # Note: ucapi STATE is for power (ON/OFF), not playback state
+
+            # Media title (check various possible attribute names)
+            for title_attr_name in [
+                "mediaTitle",
+                "title",
+                "programName",
+                "trackDescription",
+            ]:
+                title_attr = attributes.get(title_attr_name)
+                if title_attr and hasattr(title_attr, "value") and title_attr.value:
+                    update[MediaAttr.MEDIA_TITLE] = title_attr.value
+                    _LOG.debug(
+                        "[%s] SmartThings media title: %s",
+                        self.log_id,
+                        title_attr.value,
+                    )
+                    break
+
+            # Media artist
+            artist_attr = attributes.get("trackDescription")
+            if artist_attr and hasattr(artist_attr, "value") and artist_attr.value:
+                # Check if we didn't already use this as title
+                if (
+                    MediaAttr.MEDIA_TITLE not in update
+                    or update[MediaAttr.MEDIA_TITLE] != artist_attr.value
+                ):
+                    update[MediaAttr.MEDIA_ARTIST] = artist_attr.value
+                    _LOG.debug(
+                        "[%s] SmartThings media artist: %s",
+                        self.log_id,
+                        artist_attr.value,
+                    )
+
+            # Input source
+            input_attr = attributes.get("inputSource")
+            if input_attr and hasattr(input_attr, "value"):
+                source = input_attr.value
+                self._active_source = source
+                update[MediaAttr.SOURCE] = source
+                _LOG.debug("[%s] SmartThings input source: %s", self.log_id, source)
+
+            # TV Channel number and name
+            channel_attr = attributes.get("tvChannel")
+            channel_name_attr = attributes.get("tvChannelName")
+
+            # Build channel string if we have channel info and no media title yet
+            if (MediaAttr.MEDIA_TITLE not in update) and (
+                channel_attr or channel_name_attr
+            ):
+                channel_parts = []
+
+                if (
+                    channel_attr
+                    and hasattr(channel_attr, "value")
+                    and channel_attr.value
+                ):
+                    channel_parts.append(f"Channel {channel_attr.value}")
+                    _LOG.debug(
+                        "[%s] SmartThings TV channel: %s",
+                        self.log_id,
+                        channel_attr.value,
+                    )
+
+                if (
+                    channel_name_attr
+                    and hasattr(channel_name_attr, "value")
+                    and channel_name_attr.value
+                ):
+                    channel_parts.append(channel_name_attr.value)
+                    _LOG.debug(
+                        "[%s] SmartThings TV channel name: %s",
+                        self.log_id,
+                        channel_name_attr.value,
+                    )
+
+                if channel_parts:
+                    update[MediaAttr.MEDIA_TITLE] = " - ".join(channel_parts)
+                    _LOG.debug(
+                        "[%s] Using channel info as media title: %s",
+                        self.log_id,
+                        update[MediaAttr.MEDIA_TITLE],
+                    )
+
+            return update
+
+        except Exception as ex:  # pylint: disable=broad-exception-caught
+            _LOG.error(
+                "[%s] Error querying SmartThings status: %s",
+                self.log_id,
+                ex,
+                exc_info=True,
+            )
+            return update
 
     def get_entity_id(self) -> str:
         """Return the entity ID for this device."""
