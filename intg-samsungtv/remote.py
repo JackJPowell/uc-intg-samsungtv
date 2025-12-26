@@ -47,7 +47,6 @@ class SamsungRemote(Remote):
             simple_commands=SAMSUNG_REMOTE_SIMPLE_COMMANDS,
             button_mapping=SAMSUNG_REMOTE_BUTTONS_MAPPING,
             ui_pages=SAMSUNG_REMOTE_UI_PAGES,
-            cmd_handler=self.command,
         )
 
     def get_int_param(self, param: str, params: dict[str, Any], default: int):
@@ -62,7 +61,11 @@ class SamsungRemote(Remote):
         return default
 
     async def command(
-        self, cmd_id: str, params: dict[str, Any] | None = None
+        self,
+        cmd_id: str,
+        params: dict[str, Any] | None = None,
+        *,
+        websocket: Any,
     ) -> StatusCodes:
         """
         Remote entity command handler.
@@ -71,6 +74,7 @@ class SamsungRemote(Remote):
 
         :param cmd_id: command
         :param params: optional command parameters
+        :param websocket: websocket connection
         :return: status code of the command request
         """
         repeat = 1
@@ -133,12 +137,16 @@ class SamsungRemote(Remote):
                             media_player.Commands.VOLUME_UP
                             | media_player.Commands.VOLUME_UP.value
                         ):
-                            await client.send_key("KEY_VOLUP", hold_time=hold)
+                            # Try SmartThings first for better reliability
+                            if not await client.send_smartthings_command("volume_up", query_after=True, delay=0.3):
+                                await client.send_key("KEY_VOLUP", hold_time=hold)
                         case (
                             media_player.Commands.VOLUME_DOWN
                             | media_player.Commands.VOLUME_DOWN.value
                         ):
-                            await client.send_key("KEY_VOLDOWN", hold_time=hold)
+                            # Try SmartThings first for better reliability
+                            if not await client.send_smartthings_command("volume_down", query_after=True, delay=0.3):
+                                await client.send_key("KEY_VOLDOWN", hold_time=hold)
                         case (
                             media_player.Commands.MUTE_TOGGLE
                             | media_player.Commands.MUTE_TOGGLE.value
@@ -148,12 +156,16 @@ class SamsungRemote(Remote):
                             media_player.Commands.CHANNEL_DOWN
                             | media_player.Commands.CHANNEL_DOWN.value
                         ):
-                            await client.send_key("KEY_CHDOWN", hold_time=hold)
+                            # Try SmartThings first for better reliability
+                            if not await client.send_smartthings_command("channel_down", query_after=True):
+                                await client.send_key("KEY_CHDOWN", hold_time=hold)
                         case (
                             media_player.Commands.CHANNEL_UP
                             | media_player.Commands.CHANNEL_UP.value
                         ):
-                            await client.send_key("KEY_CHUP", hold_time=hold)
+                            # Try SmartThings first for better reliability
+                            if not await client.send_smartthings_command("channel_up", query_after=True):
+                                await client.send_key("KEY_CHUP", hold_time=hold)
                         case (
                             media_player.Commands.CURSOR_UP
                             | media_player.Commands.CURSOR_UP.value
@@ -178,12 +190,16 @@ class SamsungRemote(Remote):
                             media_player.Commands.FAST_FORWARD
                             | media_player.Commands.FAST_FORWARD.value
                         ):
-                            await client.send_key("KEY_FF", hold_time=hold)
+                            # Try SmartThings first for better reliability
+                            if not await client.send_smartthings_command("fast_forward"):
+                                await client.send_key("KEY_FF", hold_time=hold)
                         case (
                             media_player.Commands.REWIND
                             | media_player.Commands.REWIND.value
                         ):
-                            await client.send_key("KEY_REWIND", hold_time=hold)
+                            # Try SmartThings first for better reliability
+                            if not await client.send_smartthings_command("rewind"):
+                                await client.send_key("KEY_REWIND", hold_time=hold)
                         case (
                             media_player.Commands.CURSOR_ENTER
                             | media_player.Commands.CURSOR_ENTER.value
@@ -365,7 +381,7 @@ SAMSUNG_REMOTE_SIMPLE_COMMANDS = [
     SimpleCommands.STANDBY.value,
     SimpleCommands.FORCE_POWER.value,
 ]
-SAMSUNG_REMOTE_BUTTONS_MAPPING: list[DeviceButtonMapping] = [
+SAMSUNG_REMOTE_BUTTONS_MAPPING: list[DeviceButtonMapping | dict[str, Any]] = [
     {"button": Buttons.BACK, "short_press": {"cmd_id": media_player.Commands.BACK}},
     {"button": Buttons.HOME, "short_press": {"cmd_id": media_player.Commands.HOME}},
     {

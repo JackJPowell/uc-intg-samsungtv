@@ -10,7 +10,7 @@ from typing import Any
 import ucapi
 from const import SamsungConfig, SimpleCommands
 from tv import SamsungTv
-from ucapi import EntityTypes, MediaPlayer, media_player
+from ucapi import EntityTypes, MediaPlayer, StatusCodes, media_player
 from ucapi.media_player import Attributes, DeviceClasses
 from ucapi_framework import create_entity_id
 
@@ -21,6 +21,7 @@ features = [
     media_player.Features.ON_OFF,
     media_player.Features.TOGGLE,
     media_player.Features.VOLUME_UP_DOWN,
+    media_player.Features.VOLUME,
     media_player.Features.MUTE_TOGGLE,
     media_player.Features.HOME,
     media_player.Features.DPAD,
@@ -35,6 +36,8 @@ features = [
     media_player.Features.COLOR_BUTTONS,
     media_player.Features.FAST_FORWARD,
     media_player.Features.REWIND,
+    media_player.Features.MEDIA_ARTIST,
+    media_player.Features.MEDIA_TITLE,
 ]
 
 
@@ -73,6 +76,10 @@ class SamsungMediaPlayer(MediaPlayer):
                 Attributes.STATE: device.state,
                 Attributes.SOURCE: device.source if device.source else "",
                 Attributes.SOURCE_LIST: device.source_list,
+                Attributes.VOLUME: 0,
+                Attributes.MUTED: False,
+                Attributes.MEDIA_TITLE: "",
+                Attributes.MEDIA_ARTIST: "",
             },
             device_class=DeviceClasses.TV,
             options={media_player.Options.SIMPLE_COMMANDS: self.options[0]},
@@ -81,8 +88,8 @@ class SamsungMediaPlayer(MediaPlayer):
 
     # pylint: disable=too-many-statements
     async def media_player_cmd_handler(
-        self, entity: MediaPlayer, cmd_id: str, params: dict[str, Any] | None
-    ) -> ucapi.StatusCodes:
+        self, entity: MediaPlayer, cmd_id: str, params: dict[str, Any] | None, websocket
+    ) -> StatusCodes:
         """
         Media-player entity command handler.
 
@@ -106,21 +113,34 @@ class SamsungMediaPlayer(MediaPlayer):
                 case media_player.Commands.TOGGLE:
                     await self._device.toggle_power()
                 case SimpleCommands.STANDBY:
-                    await self._device.send_key("KEY_POWER", hold_time=2000)
+                    await self._device.send_key("KEY_POWER", hold_time=3000)
                 case media_player.Commands.VOLUME_UP:
-                    await self._device.send_key("KEY_VOLUP")
+                    # Try SmartThings first for better reliability
+                    if not await self._device.send_smartthings_command("volume_up", query_after=True, delay=0.3):
+                        await self._device.send_key("KEY_VOLUP")
                 case media_player.Commands.VOLUME_DOWN:
-                    await self._device.send_key("KEY_VOLDOWN")
+                    # Try SmartThings first for better reliability
+                    if not await self._device.send_smartthings_command("volume_down", query_after=True, delay=0.3):
+                        await self._device.send_key("KEY_VOLDOWN")
                 case media_player.Commands.MUTE_TOGGLE:
+                    # SmartThings has separate mute/unmute, so use websocket for toggle
                     await self._device.send_key("KEY_MUTE")
                 case media_player.Commands.CHANNEL_DOWN:
-                    await self._device.send_key("KEY_CHDOWN")
+                    # Try SmartThings first for better reliability
+                    if not await self._device.send_smartthings_command("channel_down", query_after=True):
+                        await self._device.send_key("KEY_CHDOWN")
                 case media_player.Commands.CHANNEL_UP:
-                    await self._device.send_key("KEY_CHUP")
+                    # Try SmartThings first for better reliability
+                    if not await self._device.send_smartthings_command("channel_up", query_after=True):
+                        await self._device.send_key("KEY_CHUP")
                 case media_player.Commands.FAST_FORWARD:
-                    await self._device.send_key("KEY_FF")
+                    # Try SmartThings first for better reliability
+                    if not await self._device.send_smartthings_command("fast_forward"):
+                        await self._device.send_key("KEY_FF")
                 case media_player.Commands.REWIND:
-                    await self._device.send_key("KEY_REWIND")
+                    # Try SmartThings first for better reliability
+                    if not await self._device.send_smartthings_command("rewind"):
+                        await self._device.send_key("KEY_REWIND")
                 case media_player.Commands.CURSOR_UP:
                     await self._device.send_key("KEY_UP")
                 case media_player.Commands.CURSOR_DOWN:
