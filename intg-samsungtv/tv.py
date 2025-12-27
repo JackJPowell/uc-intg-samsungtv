@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import logging
 import time
+import json
 from asyncio import AbstractEventLoop
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -303,7 +304,9 @@ class SamsungTv(ExternalClientDevice):
             return
 
         try:
-            async with aiohttp.ClientSession() as session:
+            # Note: SSL verification disabled because Remote Two doesn't trust GTS Root R4 cert
+            connector = aiohttp.TCPConnector(ssl=False)
+            async with aiohttp.ClientSession(connector=connector) as session:
                 # Use Cloudflare Worker to refresh token (keeps client credentials secure)
                 data = {
                     "refresh_token": self._device_config.smartthings_refresh_token,
@@ -1283,12 +1286,12 @@ class SamsungTv(ExternalClientDevice):
     ) -> bool:
         """
         Send a media control command via SmartThings API.
-        
+
         Args:
             command: The command name (e.g., 'channel_up', 'play', 'pause')
             query_after: Whether to query status after the command
             delay: Seconds to wait before querying status (if query_after is True)
-            
+
         Returns:
             True if successful, False otherwise
         """
@@ -1333,10 +1336,14 @@ class SamsungTv(ExternalClientDevice):
                     _LOG.debug("[%s] SmartThings: Rewind", self.log_id)
                 case "menu" | "tools":
                     # Try using the samsungvd.remoteControl capability with sendKey command
-                    await device.command("main", "samsungvd.remoteControl", "sendKey", ["TOOLS"])
+                    await device.command(
+                        "main", "samsungvd.remoteControl", "sendKey", ["TOOLS"]
+                    )
                     _LOG.debug("[%s] SmartThings: Sent TOOLS key", self.log_id)
                 case _:
-                    _LOG.warning("[%s] Unknown SmartThings command: %s", self.log_id, command)
+                    _LOG.warning(
+                        "[%s] Unknown SmartThings command: %s", self.log_id, command
+                    )
                     return False
 
             # Query status to get updated info if requested
@@ -1524,6 +1531,27 @@ class SamsungTv(ExternalClientDevice):
                 self._active_source = source
                 update[MediaAttr.SOURCE] = source
                 _LOG.debug("[%s] SmartThings input source: %s", self.log_id, source)
+
+            # Supported input sources (optional - supplements local API source list)
+            supported_sources_attr = attributes.get("supportedInputSources")
+            if supported_sources_attr and hasattr(supported_sources_attr, "value"):
+                try:
+                    # The value is a JSON string that needs to be parsed
+                    sources_list = json.loads(supported_sources_attr.value)
+                    if sources_list and isinstance(sources_list, list):
+                        _LOG.debug(
+                            "[%s] SmartThings supported sources: %s",
+                            self.log_id,
+                            sources_list,
+                        )
+                        # Note: We don't update SOURCE_LIST here as local API already provides this
+                        # But this could be used as fallback if local API fails
+                except (json.JSONDecodeError, TypeError) as ex:
+                    _LOG.debug(
+                        "[%s] Could not parse supportedInputSources: %s",
+                        self.log_id,
+                        ex,
+                    )
 
             # TV Channel number and name
             channel_attr = attributes.get("tvChannel")

@@ -277,7 +277,9 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         """Generate OAuth authorization screen using worker."""
         try:
             # Get authorization URL from worker
-            async with aiohttp.ClientSession() as session:
+            # Note: SSL verification disabled because Remote Two doesn't trust GTS Root R4 cert
+            connector = aiohttp.TCPConnector(ssl=False)
+            async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.get(SMARTTHINGS_WORKER_AUTHORIZE) as response:
                     if response.status != 200:
                         _LOG.error(
