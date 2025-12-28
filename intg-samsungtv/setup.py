@@ -5,6 +5,7 @@ Setup flow for Samsung TV integration.
 :license: Mozilla Public License Version 2.0, see LICENSE for more details.
 """
 
+import html
 import logging
 import re
 import ssl
@@ -244,7 +245,10 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
                     info.get("device").get("name"),
                 )
                 return SetupError(IntegrationSetupError.OTHER)
-            name = re.sub(r"^\[TV\] ", "", info.get("device").get("name"))
+            # HTML-decode the name to convert entities like &quot; to actual quotes
+            raw_name = info.get("device").get("name")
+            decoded_name = html.unescape(raw_name)
+            name = re.sub(r"^\[TV\] ", "", decoded_name)
 
             identifier: str = info.get("id", "")
             assert identifier is not None

@@ -506,6 +506,20 @@ class SamsungTv(ExternalClientDevice):
                     update[MediaAttr.SOURCE_LIST].append(app_name)
             else:
                 _LOG.warning("[%s] No apps found in app list", self.log_id)
+                # Try SmartThings as fallback if enabled
+                if self._smartthings_api:
+                    _LOG.debug(
+                        "[%s] Attempting to retrieve source list from SmartThings",
+                        self.log_id,
+                    )
+                    smartthings_sources = await self._get_smartthings_source_list()
+                    if smartthings_sources:
+                        _LOG.debug(
+                            "[%s] Adding %d sources from SmartThings",
+                            self.log_id,
+                            len(smartthings_sources),
+                        )
+                        update[MediaAttr.SOURCE_LIST].extend(smartthings_sources)
 
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.exception("[%s] Error updating app list: %s", self.log_id, ex)
@@ -1168,23 +1182,119 @@ class SamsungTv(ExternalClientDevice):
             return None
 
         if not self._smartthings_device_id:
+            _LOG.debug(
+                "[%s] No SmartThings device ID cached, attempting discovery",
+                self.log_id,
+            )
             if not await self._discover_smartthings_device():
                 return None
 
         try:
             devices = await self._smartthings_api.devices()
+            _LOG.debug(
+                "[%s] Looking for SmartThings device ID: %s among %d devices",
+                self.log_id,
+                self._smartthings_device_id,
+                len(devices),
+            )
+
             device = next(
                 (d for d in devices if d.device_id == self._smartthings_device_id), None
             )
 
             if not device:
-                _LOG.error("[%s] SmartThings device object not found", self.log_id)
+                _LOG.warning(
+                    "[%s] SmartThings device ID %s not found in device list",
+                    self.log_id,
+                    self._smartthings_device_id,
+                )
+                # Log all available devices to help diagnose
+                _LOG.debug("[%s] Available SmartThings devices:", self.log_id)
+                for dev in devices:
+                    _LOG.debug(
+                        "  - ID: %s, Label: %s, Type: %s",
+                        dev.device_id,
+                        getattr(dev, "label", "N/A"),
+                        getattr(dev, "type", "N/A"),
+                    )
+
+                # Try re-discovering in case the device ID changed
+                _LOG.info(
+                    "[%s] Attempting to re-discover SmartThings device", self.log_id
+                )
+                self._smartthings_device_id = None
+                if await self._discover_smartthings_device():
+                    # Retry lookup with new device ID
+                    device = next(
+                        (
+                            d
+                            for d in devices
+                            if d.device_id == self._smartthings_device_id
+                        ),
+                        None,
+                    )
+                    if device:
+                        _LOG.info(
+                            "[%s] Successfully found device after re-discovery",
+                            self.log_id,
+                        )
+                        return device
+
+                _LOG.error(
+                    "[%s] SmartThings device not found even after re-discovery",
+                    self.log_id,
+                )
                 return None
 
+            _LOG.debug(
+                "[%s] Found SmartThings device: %s",
+                self.log_id,
+                getattr(device, "label", self._smartthings_device_id),
+            )
             return device
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.error("[%s] Error getting SmartThings device: %s", self.log_id, ex)
             return None
+
+    async def _get_smartthings_source_list(self) -> list[str] | None:
+        """
+        Retrieve supported input sources from SmartThings.
+
+        Returns a list of source names if available, None otherwise.
+        This can be used as a fallback when local API fails to provide sources.
+        """
+        device = await self._get_smartthings_device()
+        if not device:
+            return None
+
+        try:
+            await device.status.refresh()
+            attributes = device.status.attributes
+
+            supported_sources_attr = attributes.get("supportedInputSources")
+            if supported_sources_attr and hasattr(supported_sources_attr, "value"):
+                try:
+                    # The value is a JSON string that needs to be parsed
+                    sources_list = json.loads(supported_sources_attr.value)
+                    if sources_list and isinstance(sources_list, list):
+                        _LOG.debug(
+                            "[%s] Retrieved %d sources from SmartThings",
+                            self.log_id,
+                            len(sources_list),
+                        )
+                        return sources_list
+                except (json.JSONDecodeError, TypeError) as ex:
+                    _LOG.debug(
+                        "[%s] Could not parse supportedInputSources: %s",
+                        self.log_id,
+                        ex,
+                    )
+        except Exception as ex:  # pylint: disable=broad-exception-caught
+            _LOG.debug(
+                "[%s] Error retrieving SmartThings source list: %s", self.log_id, ex
+            )
+
+        return None
 
     async def set_input_source_smartthings(self, source: str) -> bool:
         """
@@ -1538,26 +1648,8 @@ class SamsungTv(ExternalClientDevice):
                 update[MediaAttr.SOURCE] = source
                 _LOG.debug("[%s] SmartThings input source: %s", self.log_id, source)
 
-            # Supported input sources (optional - supplements local API source list)
-            supported_sources_attr = attributes.get("supportedInputSources")
-            if supported_sources_attr and hasattr(supported_sources_attr, "value"):
-                try:
-                    # The value is a JSON string that needs to be parsed
-                    sources_list = json.loads(supported_sources_attr.value)
-                    if sources_list and isinstance(sources_list, list):
-                        _LOG.debug(
-                            "[%s] SmartThings supported sources: %s",
-                            self.log_id,
-                            sources_list,
-                        )
-                        # Note: We don't update SOURCE_LIST here as local API already provides this
-                        # But this could be used as fallback if local API fails
-                except (json.JSONDecodeError, TypeError) as ex:
-                    _LOG.debug(
-                        "[%s] Could not parse supportedInputSources: %s",
-                        self.log_id,
-                        ex,
-                    )
+            # Supported input sources are now retrieved via _get_smartthings_source_list()
+            # and used as fallback in _update_app_list() when local API fails
 
             # TV Channel number and name
             channel_attr = attributes.get("tvChannel")
