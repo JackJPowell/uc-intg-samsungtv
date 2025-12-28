@@ -7,10 +7,12 @@ Setup flow for Samsung TV integration.
 
 import logging
 import re
+import ssl
 import time
 import json
 from typing import Any
 import aiohttp
+import certifi
 from const import (
     SamsungConfig,
     SMARTTHINGS_WORKER_AUTHORIZE,
@@ -277,8 +279,9 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         """Generate OAuth authorization screen using worker."""
         try:
             # Get authorization URL from worker
-            # Note: SSL verification disabled because Remote Two doesn't trust GTS Root R4 cert
-            connector = aiohttp.TCPConnector(ssl=False)
+            # Use certifi CA bundle for SSL verification
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
             async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.get(SMARTTHINGS_WORKER_AUTHORIZE) as response:
                     if response.status != 200:

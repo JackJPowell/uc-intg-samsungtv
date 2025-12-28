@@ -5,15 +5,17 @@ This module implements the Samsung TV communication of the Remote Two integratio
 
 import asyncio
 import contextlib
-import logging
-import time
 import json
+import logging
+import ssl
+import time
 from asyncio import AbstractEventLoop
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any, cast
 
 import aiohttp
+import certifi
 import wakeonlan
 from const import (
     SamsungConfig,
@@ -274,9 +276,10 @@ class SamsungTv(ExternalClientDevice):
         token = self._device_config.smartthings_access_token
 
         try:
-            # Create aiohttp session for SmartThings API
-            # Note: SSL verification disabled because Remote Two doesn't trust GTS Root R4 cert
-            connector = aiohttp.TCPConnector(ssl=False)
+            # Create aiohttp session for SmartThings API with certifi CA bundle
+            # Uses up-to-date Mozilla CA bundle which includes GTS Root R4
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
             session = aiohttp.ClientSession(connector=connector)
 
             self._smartthings_api = SmartThings(
@@ -306,8 +309,9 @@ class SamsungTv(ExternalClientDevice):
             return
 
         try:
-            # Note: SSL verification disabled because Remote Two doesn't trust GTS Root R4 cert
-            connector = aiohttp.TCPConnector(ssl=False)
+            # Use certifi CA bundle for SSL verification
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
             async with aiohttp.ClientSession(connector=connector) as session:
                 # Use Cloudflare Worker to refresh token (keeps client credentials secure)
                 data = {
