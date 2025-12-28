@@ -275,7 +275,9 @@ class SamsungTv(ExternalClientDevice):
 
         try:
             # Create aiohttp session for SmartThings API
-            session = aiohttp.ClientSession()
+            # Note: SSL verification disabled because Remote Two doesn't trust GTS Root R4 cert
+            connector = aiohttp.TCPConnector(ssl=False)
+            session = aiohttp.ClientSession(connector=connector)
 
             self._smartthings_api = SmartThings(
                 session=session,
