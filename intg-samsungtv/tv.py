@@ -68,6 +68,7 @@ class SamsungTv(ExternalClientDevice):
         self._active_source: str = ""
         self._power_on_task: asyncio.Task | None = None
         self._power_state: PowerState | None = None
+        self._device_uuid: str | None = None  # TV's UUID from REST API (duid)
 
         # SmartThings Cloud API client (optional - for advanced features like input source)
         self._smartthings_api: SmartThings | None = None
@@ -232,7 +233,7 @@ class SamsungTv(ExternalClientDevice):
             )
             return
 
-        # Get initial state and fetch app list
+        # Get initial state
         self.get_power_state()
         self.events.emit(
             DeviceEvents.UPDATE,
@@ -240,12 +241,24 @@ class SamsungTv(ExternalClientDevice):
             {MediaAttr.STATE: self._power_state},
         )
 
-        await asyncio.sleep(1)
-        await self._update_app_list()
+        # Get device UUID from REST API for SmartThings matching
+        device_info = self.get_device_info()
+        if device_info and "device" in device_info:
+            duid = device_info["device"].get("duid")
+            if duid:
+                # Extract UUID from "uuid:919b18c4-1db7-4f71-8230-fd62c3b92413" format
+                self._device_uuid = duid.replace("uuid:", "")
+                _LOG.debug(
+                    "[%s] Extracted device UUID: %s", self.log_id, self._device_uuid
+                )
 
-        # Initialize SmartThings API client if OAuth token is configured
+        # Initialize SmartThings API client first if OAuth token is configured
+        # This allows SmartThings to be used as fallback when fetching app list
         if self._device_config.smartthings_access_token and not self._smartthings_api:
             await self._init_smartthings_client()
+
+        await asyncio.sleep(1)
+        await self._update_app_list()
 
     async def _init_smartthings_client(self) -> None:
         """
@@ -989,184 +1002,230 @@ class SamsungTv(ExternalClientDevice):
                 mac_normalized,
                 len(devices),
             )
+            _LOG.debug(
+                "[%s] Will also try matching by IP: %s, name: %s, and UUID: %s",
+                self.log_id,
+                self._device_config.address,
+                self._device_config.name,
+                self._device_uuid if self._device_uuid else "N/A",
+            )
+
+            matched_device = None
+            match_method = None
 
             for device in devices:
-                # Check device_network_id for MAC match (if available)
+                # Get device attributes
                 device_mac = (
                     getattr(device, "device_network_id", "").replace(":", "").upper()
                 )
                 device_label = getattr(device, "label", "")
-
+                device_type = getattr(device, "type", "")
+                
+                # Log all potentially useful attributes for debugging
                 _LOG.debug(
-                    "[%s] Checking device: %s (label: %s, device_network_id: %s)",
+                    "[%s] Checking device: %s (label: %s, type: %s, device_network_id: %s)",
                     self.log_id,
                     device.device_id,
                     device_label,
+                    device_type,
                     getattr(device, "device_network_id", "N/A"),
                 )
+                
+                # Log additional attributes that might help with matching
+                _LOG.debug(
+                    "[%s]   Additional attributes - ocf_device_type: %s, manufacturer_name: %s, device_manufacturer_code: %s",
+                    self.log_id,
+                    getattr(device, "ocf_device_type", "N/A"),
+                    getattr(device, "manufacturer_name", "N/A"),
+                    getattr(device, "device_manufacturer_code", "N/A"),
+                )
+                
+                # Strategy 1: Match by UUID - most reliable if available
+                # Check if device_id or device_network_id contains the TV's UUID
+                if self._device_uuid:
+                    device_id_lower = device.device_id.lower()
+                    uuid_lower = self._device_uuid.lower()
+                    # Check if UUID appears in device_id or device_network_id
+                    if uuid_lower in device_id_lower or (
+                        device_mac and uuid_lower in device_mac.lower()
+                    ):
+                        matched_device = device
+                        match_method = f"UUID match ({self._device_uuid})"
+                        _LOG.info(
+                            "[%s] Found device by UUID in device_id/network_id",
+                            self.log_id,
+                        )
+                        break
 
-                # Try matching by device_network_id (MAC) first
+                # Strategy 2: Match by device_network_id (MAC address) - most reliable
                 if device_mac and device_mac == mac_normalized:
-                    self._smartthings_device_id = device.device_id
-                    _LOG.debug(
-                        "[%s] Found SmartThings device by MAC: %s (ID: %s)",
-                        self.log_id,
-                        device_label,
-                        device.device_id,
-                    )
-                    return True
+                    matched_device = device
+                    match_method = f"MAC address ({device_mac})"
+                    break
 
-                # Fallback: match by device name (label)
+                # Strategy 3: Match by device name (label)
                 # SmartThings often prefixes with [TV]
-                if device_label:
+                if device_label and not matched_device:
                     # Remove [TV] prefix and compare
                     label_clean = device_label.replace("[TV] ", "").strip()
                     if label_clean == self._device_config.name:
-                        self._smartthings_device_id = device.device_id
-                        _LOG.info(
-                            "[%s] Found SmartThings device by name: %s (ID: %s)",
-                            self.log_id,
-                            device_label,
-                            device.device_id,
-                        )
+                        matched_device = device
+                        match_method = f"name match ('{device_label}')"
+                        # Don't break - continue looking in case we find a MAC match
 
-                        # Log device capabilities and type to understand what's available
-                        _LOG.debug(
-                            "[%s] Device type: %s, capabilities: %s",
-                            self.log_id,
-                            getattr(device, "type", "UNKNOWN"),
-                            [cap for cap in getattr(device, "capabilities", [])],
-                        )
+            # Check if we found a device
+            if not matched_device:
+                _LOG.warning(
+                    "[%s] SmartThings device not found - tried MAC: %s, Name: %s",
+                    self.log_id,
+                    mac_normalized,
+                    self._device_config.name,
+                )
+                return False
 
-                        # Check if TV supports power on via OCF (network wake without WOL)
-                        # Many Samsung TVs are OCF type but don't actually support network wake
-                        # from powered-off state. We need to check the actual capability value.
-                        device_type = getattr(device, "type", None)
-                        capabilities = getattr(device, "capabilities", [])
-
-                        # Log comprehensive device information for debugging
-                        _LOG.info(
-                            "[%s] SmartThings device details - Type: %s, Device ID: %s",
-                            self.log_id,
-                            device_type,
-                            device.device_id,
-                        )
-                        _LOG.debug(
-                            "[%s] All capabilities: %s",
-                            self.log_id,
-                            capabilities,
-                        )
-                        _LOG.debug(
-                            "[%s] Has supportsPowerOnByOcf capability: %s",
-                            self.log_id,
-                            "samsungvd.supportsPowerOnByOcf" in capabilities,
-                        )
-
-                        # Conservative approach: Default to NOT supporting network power on
-                        # Only enable it if we can explicitly verify it's supported
-                        supports_network_power = False
-
-                        # Check device.status directly (don't call refresh() as it returns None)
-                        # device.status already contains the current status data
-                        try:
-                            if hasattr(device, "status") and device.status:
-                                status = device.status
-
-                                # Log all available status attributes for debugging
-                                if hasattr(status, "attributes"):
-                                    _LOG.debug(
-                                        "[%s] All status attributes: %s",
-                                        self.log_id,
-                                        list(status.attributes.keys()),
-                                    )
-
-                                    # Try to get the supportsPowerOnByOcf attribute value
-                                    ocf_value = status.attributes.get(
-                                        "supportsPowerOnByOcf"
-                                    )
-
-                                    if ocf_value:
-                                        # Log detailed information about the OCF attribute
-                                        _LOG.info(
-                                            "[%s] supportsPowerOnByOcf found - Value: %s, Unit: %s, Data: %s",
-                                            self.log_id,
-                                            getattr(ocf_value, "value", None),
-                                            getattr(ocf_value, "unit", None),
-                                            getattr(ocf_value, "data", None),
-                                        )
-
-                                        # Only enable if the attribute has a truthy value
-                                        # TVs that support it will have this populated with data
-                                        # TVs that don't support it will have it empty/None
-                                        if (
-                                            hasattr(ocf_value, "value")
-                                            and ocf_value.value
-                                        ):
-                                            supports_network_power = True
-                                            _LOG.info(
-                                                "[%s] OCF power on IS SUPPORTED (value=%s) - will use SmartThings for power",
-                                                self.log_id,
-                                                ocf_value.value,
-                                            )
-                                        else:
-                                            _LOG.info(
-                                                "[%s] OCF power on NOT supported (value=%s) - will use WOL",
-                                                self.log_id,
-                                                getattr(ocf_value, "value", None),
-                                            )
-                                    else:
-                                        _LOG.info(
-                                            "[%s] supportsPowerOnByOcf attribute not found in status - will use WOL",
-                                            self.log_id,
-                                        )
-                                else:
-                                    _LOG.warning(
-                                        "[%s] Device status has no attributes",
-                                        self.log_id,
-                                    )
-                            else:
-                                _LOG.warning(
-                                    "[%s] Device has no status object",
-                                    self.log_id,
-                                )
-                        except Exception as ex:
-                            _LOG.warning(
-                                "[%s] Error checking supportsPowerOnByOcf: %s",
-                                self.log_id,
-                                ex,
-                                exc_info=True,
-                            )
-
-                        if supports_network_power:
-                            self._device_config.supports_power_on_by_ocf = True
-                            _LOG.info(
-                                "[%s] TV supports network-based power on - will use SmartThings for power control",
-                                self.log_id,
-                            )
-                        else:
-                            self._device_config.supports_power_on_by_ocf = False
-                            _LOG.info(
-                                "[%s] TV does not support network-based power on - will use WOL for power on",
-                                self.log_id,
-                            )
-
-                        # Save the updated config to disk so it persists across restarts
-                        if self._config_manager:
-                            self._config_manager.update(self._device_config)
-                            _LOG.debug(
-                                "[%s] Saved supports_power_on_by_ocf setting to config",
-                                self.log_id,
-                            )
-
-                        return True
-
-            _LOG.warning(
-                "[%s] SmartThings device not found for MAC: %s (normalized: %s)",
+            # We found a device!
+            self._smartthings_device_id = matched_device.device_id
+            _LOG.info(
+                "[%s] Found SmartThings device via %s (ID: %s)",
                 self.log_id,
-                self._device_config.mac_address,
-                mac_normalized,
+                match_method,
+                matched_device.device_id,
             )
-            return False
+
+            # Log device capabilities and type to understand what's available
+            device_type = getattr(matched_device, "type", "UNKNOWN")
+            capabilities = getattr(matched_device, "capabilities", [])
+
+            _LOG.info(
+                "[%s] SmartThings device details - Type: %s, Device ID: %s",
+                self.log_id,
+                device_type,
+                matched_device.device_id,
+            )
+            _LOG.debug(
+                "[%s] All capabilities: %s",
+                self.log_id,
+                capabilities,
+            )
+            _LOG.debug(
+                "[%s] Has supportsPowerOnByOcf capability: %s",
+                self.log_id,
+                "samsungvd.supportsPowerOnByOcf" in capabilities,
+            )
+
+            # Check if TV supports power on via OCF (network wake without WOL)
+            # Conservative approach: Default to NOT supporting network power on
+            supports_network_power = False
+
+            # Refresh device status to populate all attributes
+            # When devices() is called, status.attributes may be empty
+            try:
+                if hasattr(matched_device, "status") and matched_device.status:
+                    _LOG.debug(
+                        "[%s] Refreshing device status to populate attributes",
+                        self.log_id,
+                    )
+                    await matched_device.status.refresh()
+                    status = matched_device.status
+
+                    # Log all available status attributes for debugging
+                    if hasattr(status, "attributes"):
+                        _LOG.debug(
+                            "[%s] All status attributes after refresh: %s",
+                            self.log_id,
+                            list(status.attributes.keys()),
+                        )
+
+                        # Try to get the supportsPowerOnByOcf attribute value
+                        ocf_value = status.attributes.get("supportsPowerOnByOcf")
+
+                        if ocf_value:
+                            # Log detailed information about the OCF attribute
+                            _LOG.info(
+                                "[%s] supportsPowerOnByOcf found - Value: %s, Unit: %s, Data: %s",
+                                self.log_id,
+                                getattr(ocf_value, "value", None),
+                                getattr(ocf_value, "unit", None),
+                                getattr(ocf_value, "data", None),
+                            )
+
+                            # Only enable if the attribute has a truthy value
+                            # TVs that support it will have this populated with data
+                            # TVs that don't support it will have it empty/None
+                            if hasattr(ocf_value, "value") and ocf_value.value:
+                                supports_network_power = True
+                                _LOG.info(
+                                    "[%s] OCF power on IS SUPPORTED (value=%s) - will use SmartThings for power",
+                                    self.log_id,
+                                    ocf_value.value,
+                                )
+                            else:
+                                _LOG.info(
+                                    "[%s] OCF power on NOT supported (value=%s) - will use WOL",
+                                    self.log_id,
+                                    getattr(ocf_value, "value", None),
+                                )
+                        else:
+                            _LOG.info(
+                                "[%s] supportsPowerOnByOcf attribute not found in status - will use WOL",
+                                self.log_id,
+                            )
+                    else:
+                        _LOG.warning(
+                            "[%s] Device status has no attributes",
+                            self.log_id,
+                        )
+                else:
+                    _LOG.warning(
+                        "[%s] Device has no status object",
+                        self.log_id,
+                    )
+            except Exception as ex:
+                _LOG.warning(
+                    "[%s] Error checking supportsPowerOnByOcf: %s",
+                    self.log_id,
+                    ex,
+                    exc_info=True,
+                )
+
+            if supports_network_power:
+                self._device_config.supports_power_on_by_ocf = True
+                _LOG.info(
+                    "[%s] TV supports network-based power on - will use SmartThings for power control",
+                    self.log_id,
+                )
+            else:
+                self._device_config.supports_power_on_by_ocf = False
+                _LOG.info(
+                    "[%s] TV does not support network-based power on - will use WOL for power on",
+                    self.log_id,
+                )
+
+            # Save the updated config to disk so it persists across restarts
+            if self._config_manager:
+                self._config_manager.update(self._device_config)
+                _LOG.debug(
+                    "[%s] Saved supports_power_on_by_ocf setting to config",
+                    self.log_id,
+                )
+
+            return True
+
+        except aiohttp.ClientResponseError as ex:
+            if ex.status == 401:
+                _LOG.warning(
+                    "[%s] SmartThings API returned 401 Unauthorized - token may have expired",
+                    self.log_id,
+                )
+                # Try refreshing the token
+                await self._refresh_smartthings_token()
+                # Don't retry here - let the caller retry if needed
+                return False
+            else:
+                _LOG.error(
+                    "[%s] SmartThings API error during discovery: %s", self.log_id, ex
+                )
+                return False
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.error("[%s] Error discovering SmartThings device: %s", self.log_id, ex)
             return False
@@ -1252,6 +1311,58 @@ class SamsungTv(ExternalClientDevice):
                 getattr(device, "label", self._smartthings_device_id),
             )
             return device
+        except aiohttp.ClientResponseError as ex:
+            if ex.status == 401:
+                _LOG.warning(
+                    "[%s] SmartThings API returned 401 Unauthorized - attempting token refresh and retry",
+                    self.log_id,
+                )
+                # Refresh token
+                await self._refresh_smartthings_token()
+                
+                # Recreate API client with new token
+                if self._device_config.smartthings_access_token:
+                    try:
+                        ssl_context = ssl.create_default_context(cafile=certifi.where())
+                        connector = aiohttp.TCPConnector(ssl=ssl_context)
+                        session = aiohttp.ClientSession(connector=connector)
+                        self._smartthings_api = SmartThings(
+                            session=session,
+                            token=self._device_config.smartthings_access_token,
+                        )
+                        _LOG.debug(
+                            "[%s] Recreated SmartThings API client with refreshed token",
+                            self.log_id,
+                        )
+                        
+                        # Retry getting device list with new token
+                        devices = await self._smartthings_api.devices()
+                        device = next(
+                            (
+                                d
+                                for d in devices
+                                if d.device_id == self._smartthings_device_id
+                            ),
+                            None,
+                        )
+                        if device:
+                            _LOG.info(
+                                "[%s] Successfully retrieved device after token refresh",
+                                self.log_id,
+                            )
+                            return device
+                    except Exception as retry_ex:  # pylint: disable=broad-exception-caught
+                        _LOG.error(
+                            "[%s] Failed to get device even after token refresh: %s",
+                            self.log_id,
+                            retry_ex,
+                        )
+                return None
+            else:
+                _LOG.error(
+                    "[%s] SmartThings API error: %s", self.log_id, ex
+                )
+                return None
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.error("[%s] Error getting SmartThings device: %s", self.log_id, ex)
             return None
