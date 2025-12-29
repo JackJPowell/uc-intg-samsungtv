@@ -123,7 +123,19 @@ class SamsungTv(ExternalClientDevice):
     @property
     def source_list(self) -> list[str]:
         """Return a list of available input sources."""
-        return sorted(self._app_list)
+        # Always include standard inputs even if app list is empty
+        sources = [
+            "TV",
+            "HDMI",
+            "HDMI1",
+            "HDMI2",
+            "HDMI3",
+            "HDMI4",
+        ]
+        # Add installed apps if available
+        if self._app_list:
+            sources.extend(sorted(self._app_list.keys()))
+        return sources
 
     @property
     def source(self) -> str:
@@ -528,11 +540,16 @@ class SamsungTv(ExternalClientDevice):
                     smartthings_sources = await self._get_smartthings_source_list()
                     if smartthings_sources:
                         _LOG.debug(
-                            "[%s] Adding %d sources from SmartThings",
+                            "[%s] Adding %d sources from SmartThings to app list",
                             self.log_id,
                             len(smartthings_sources),
                         )
-                        update[MediaAttr.SOURCE_LIST].extend(smartthings_sources)
+                        # Merge SmartThings sources into _app_list so they persist
+                        # and are included in the source_list property
+                        self._app_list.update(smartthings_sources)
+                        # Add to update - source_list property will now include these
+                        for source_name in sorted(smartthings_sources.keys()):
+                            update[MediaAttr.SOURCE_LIST].append(source_name)
 
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.exception("[%s] Error updating app list: %s", self.log_id, ex)
@@ -1367,12 +1384,13 @@ class SamsungTv(ExternalClientDevice):
             _LOG.error("[%s] Error getting SmartThings device: %s", self.log_id, ex)
             return None
 
-    async def _get_smartthings_source_list(self) -> list[str] | None:
+    async def _get_smartthings_source_list(self) -> dict[str, str] | None:
         """
         Retrieve supported input sources from SmartThings.
 
-        Returns a list of source names if available, None otherwise.
+        Returns a dict of source names to IDs if available, None otherwise.
         This can be used as a fallback when local API fails to provide sources.
+        Format matches _app_list: {"Source Name": "source_id"}
         """
         device = await self._get_smartthings_device()
         if not device:
@@ -1388,12 +1406,15 @@ class SamsungTv(ExternalClientDevice):
                     # The value is a JSON string that needs to be parsed
                     sources_list = json.loads(supported_sources_attr.value)
                     if sources_list and isinstance(sources_list, list):
+                        # Convert list to dict format matching _app_list
+                        # Use the source name as both key and value since SmartThings doesn't provide separate IDs
+                        sources_dict = {source: source for source in sources_list}
                         _LOG.debug(
                             "[%s] Retrieved %d sources from SmartThings",
                             self.log_id,
-                            len(sources_list),
+                            len(sources_dict),
                         )
-                        return sources_list
+                        return sources_dict
                 except (json.JSONDecodeError, TypeError) as ex:
                     _LOG.debug(
                         "[%s] Could not parse supportedInputSources: %s",
