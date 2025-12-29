@@ -1402,25 +1402,39 @@ class SamsungTv(ExternalClientDevice):
 
             supported_sources_attr = attributes.get("supportedInputSources")
             if supported_sources_attr and hasattr(supported_sources_attr, "value"):
-                try:
-                    # The value is a JSON string that needs to be parsed
-                    sources_list = json.loads(supported_sources_attr.value)
-                    if sources_list and isinstance(sources_list, list):
-                        # Convert list to dict format matching _app_list
-                        # Use the source name as both key and value since SmartThings doesn't provide separate IDs
-                        sources_dict = {source: source for source in sources_list}
+                sources_value = supported_sources_attr.value
+                
+                # The value might be a JSON string or already a list
+                if isinstance(sources_value, str):
+                    try:
+                        sources_list = json.loads(sources_value)
+                    except (json.JSONDecodeError, TypeError) as ex:
                         _LOG.debug(
-                            "[%s] Retrieved %d sources from SmartThings",
+                            "[%s] Could not parse supportedInputSources JSON: %s",
                             self.log_id,
-                            len(sources_dict),
+                            ex,
                         )
-                        return sources_dict
-                except (json.JSONDecodeError, TypeError) as ex:
+                        return None
+                elif isinstance(sources_value, list):
+                    sources_list = sources_value
+                else:
                     _LOG.debug(
-                        "[%s] Could not parse supportedInputSources: %s",
+                        "[%s] supportedInputSources value is unexpected type: %s",
                         self.log_id,
-                        ex,
+                        type(sources_value),
                     )
+                    return None
+                
+                if sources_list and isinstance(sources_list, list):
+                    # Convert list to dict format matching _app_list
+                    # Use the source name as both key and value since SmartThings doesn't provide separate IDs
+                    sources_dict = {source: source for source in sources_list}
+                    _LOG.debug(
+                        "[%s] Retrieved %d sources from SmartThings",
+                        self.log_id,
+                        len(sources_dict),
+                    )
+                    return sources_dict
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.debug(
                 "[%s] Error retrieving SmartThings source list: %s", self.log_id, ex
