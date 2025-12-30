@@ -137,35 +137,32 @@ class SamsungRemote(Remote):
                             media_player.Commands.VOLUME_UP
                             | media_player.Commands.VOLUME_UP.value
                         ):
-                            # Try SmartThings first for better reliability
-                            if not await client.send_smartthings_command("volume_up", query_after=True, delay=0.3):
-                                await client.send_key("KEY_VOLUP", hold_time=hold)
+                            # Use local control for fast response (SmartThings queries status after)
+                            await client.send_key("KEY_VOLUP", hold_time=hold)
                         case (
                             media_player.Commands.VOLUME_DOWN
                             | media_player.Commands.VOLUME_DOWN.value
                         ):
-                            # Try SmartThings first for better reliability
-                            if not await client.send_smartthings_command("volume_down", query_after=True, delay=0.3):
-                                await client.send_key("KEY_VOLDOWN", hold_time=hold)
+                            # Use local control for fast response (SmartThings queries status after)
+                            await client.send_key("KEY_VOLDOWN", hold_time=hold)
                         case (
                             media_player.Commands.MUTE_TOGGLE
                             | media_player.Commands.MUTE_TOGGLE.value
                         ):
-                            await client.send_key("KEY_MUTE", hold_time=hold)
+                            # Use local control for fast response (SmartThings queries status after)
+                            await client.mute_toggle()
                         case (
                             media_player.Commands.CHANNEL_DOWN
                             | media_player.Commands.CHANNEL_DOWN.value
                         ):
-                            # Try SmartThings first for better reliability
-                            if not await client.send_smartthings_command("channel_down", query_after=True):
-                                await client.send_key("KEY_CHDOWN", hold_time=hold)
+                            # Use local control for fast response (SmartThings queries status after)
+                            await client.send_key("KEY_CHDOWN", hold_time=hold)
                         case (
                             media_player.Commands.CHANNEL_UP
                             | media_player.Commands.CHANNEL_UP.value
                         ):
-                            # Try SmartThings first for better reliability
-                            if not await client.send_smartthings_command("channel_up", query_after=True):
-                                await client.send_key("KEY_CHUP", hold_time=hold)
+                            # Use local control for fast response (SmartThings queries status after)
+                            await client.send_key("KEY_CHUP", hold_time=hold)
                         case (
                             media_player.Commands.CURSOR_UP
                             | media_player.Commands.CURSOR_UP.value
@@ -190,14 +187,14 @@ class SamsungRemote(Remote):
                             media_player.Commands.FAST_FORWARD
                             | media_player.Commands.FAST_FORWARD.value
                         ):
-                            # Try SmartThings first for better reliability
+                            # Use SmartThings (local KEY_FF doesn't work correctly)
                             if not await client.send_smartthings_command("fast_forward"):
                                 await client.send_key("KEY_FF", hold_time=hold)
                         case (
                             media_player.Commands.REWIND
                             | media_player.Commands.REWIND.value
                         ):
-                            # Try SmartThings first for better reliability
+                            # Use SmartThings (local KEY_REWIND doesn't work correctly)
                             if not await client.send_smartthings_command("rewind"):
                                 await client.send_key("KEY_REWIND", hold_time=hold)
                         case (

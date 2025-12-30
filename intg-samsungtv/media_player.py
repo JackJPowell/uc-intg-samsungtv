@@ -115,30 +115,26 @@ class SamsungMediaPlayer(MediaPlayer):
                 case SimpleCommands.STANDBY:
                     await self._device.send_key("KEY_POWER", hold_time=3000)
                 case media_player.Commands.VOLUME_UP:
-                    # Try SmartThings first for better reliability
-                    if not await self._device.send_smartthings_command("volume_up", query_after=True, delay=0.3):
-                        await self._device.send_key("KEY_VOLUP")
+                    # Use local control for fast response (SmartThings queries status after)
+                    await self._device.send_key("KEY_VOLUP")
                 case media_player.Commands.VOLUME_DOWN:
-                    # Try SmartThings first for better reliability
-                    if not await self._device.send_smartthings_command("volume_down", query_after=True, delay=0.3):
-                        await self._device.send_key("KEY_VOLDOWN")
+                    # Use local control for fast response (SmartThings queries status after)
+                    await self._device.send_key("KEY_VOLDOWN")
                 case media_player.Commands.MUTE_TOGGLE:
-                    # SmartThings has separate mute/unmute, so use websocket for toggle
-                    await self._device.send_key("KEY_MUTE")
+                    # Use smart mute toggle (uses SmartThings state when available)
+                    await self._device.mute_toggle()
                 case media_player.Commands.CHANNEL_DOWN:
-                    # Try SmartThings first for better reliability
-                    if not await self._device.send_smartthings_command("channel_down", query_after=True):
-                        await self._device.send_key("KEY_CHDOWN")
+                    # Use local control for fast response (SmartThings queries status after)
+                    await self._device.send_key("KEY_CHDOWN")
                 case media_player.Commands.CHANNEL_UP:
-                    # Try SmartThings first for better reliability
-                    if not await self._device.send_smartthings_command("channel_up", query_after=True):
-                        await self._device.send_key("KEY_CHUP")
+                    # Use local control for fast response (SmartThings queries status after)
+                    await self._device.send_key("KEY_CHUP")
                 case media_player.Commands.FAST_FORWARD:
-                    # Try SmartThings first for better reliability
+                    # Use SmartThings (local KEY_FF doesn't work correctly)
                     if not await self._device.send_smartthings_command("fast_forward"):
                         await self._device.send_key("KEY_FF")
                 case media_player.Commands.REWIND:
-                    # Try SmartThings first for better reliability
+                    # Use SmartThings (local KEY_REWIND doesn't work correctly)
                     if not await self._device.send_smartthings_command("rewind"):
                         await self._device.send_key("KEY_REWIND")
                 case media_player.Commands.CURSOR_UP:
