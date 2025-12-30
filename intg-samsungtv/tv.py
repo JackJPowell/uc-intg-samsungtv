@@ -275,6 +275,9 @@ class SamsungTv(ExternalClientDevice):
 
         # Query SmartThings for initial status if configured
         if self._smartthings_api and self._smartthings_device_id:
+            # Debug: Print all available SmartThings attributes
+            await self.debug_smartthings_all_attributes()
+            # Normal status query
             await self.query_smartthings_status_direct(emit=True)
 
     async def _init_smartthings_client(self) -> None:
@@ -1310,6 +1313,87 @@ class SamsungTv(ExternalClientDevice):
 
         return None
 
+    async def debug_smartthings_all_attributes(self) -> None:
+        """
+        Debug method to query and print all SmartThings attributes.
+        
+        Queries the raw SmartThings API and prints every attribute available
+        for debugging and discovery purposes.
+        """
+        if (
+            not self._device_config.smartthings_access_token
+            or not self._smartthings_device_id
+        ):
+            _LOG.warning("[%s] SmartThings not configured for debug query", self.log_id)
+            return
+
+        try:
+            # SmartThings API endpoint for device states
+            API_BASEURL = "https://api.smartthings.com/v1"
+            API_DEVICE_STATUS = (
+                f"{API_BASEURL}/devices/{self._smartthings_device_id}/states"
+            )
+
+            # Prepare headers
+            headers = {
+                "Authorization": f"Bearer {self._device_config.smartthings_access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # Use certifi CA bundle for SSL verification
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.get(API_DEVICE_STATUS, headers=headers) as resp:
+                    if resp.status != 200:
+                        _LOG.warning(
+                            "[%s] SmartThings API debug query returned status %d",
+                            self.log_id,
+                            resp.status,
+                        )
+                        return
+
+                    data = await resp.json()
+                    
+                    _LOG.info("[%s] ========== SmartThings Debug: All Attributes ==========", self.log_id)
+                    
+                    # Iterate through all components
+                    for component_name, component_data in data.items():
+                        _LOG.info("[%s] Component: %s", self.log_id, component_name)
+                        
+                        if isinstance(component_data, dict):
+                            # Iterate through all attributes in this component
+                            for attr_name, attr_value in component_data.items():
+                                _LOG.info("[%s]   Attribute: %s", self.log_id, attr_name)
+                                _LOG.info("[%s]     Raw Value: %s", self.log_id, attr_value)
+                                
+                                # If it's a dict with 'value', show the parsed value too
+                                if isinstance(attr_value, dict) and 'value' in attr_value:
+                                    _LOG.info("[%s]     Extracted Value: %s", self.log_id, attr_value.get('value'))
+                                    
+                                    # Try to parse JSON strings
+                                    value_str = attr_value.get('value')
+                                    if isinstance(value_str, str) and (value_str.startswith('[') or value_str.startswith('{')):
+                                        try:
+                                            parsed = json.loads(value_str)
+                                            _LOG.info("[%s]     Parsed JSON: %s", self.log_id, parsed)
+                                        except (json.JSONDecodeError, TypeError):
+                                            pass
+                                
+                                _LOG.info("[%s]   ---", self.log_id)
+                        else:
+                            _LOG.info("[%s]   Data: %s", self.log_id, component_data)
+                    
+                    _LOG.info("[%s] ========== End SmartThings Debug ==========", self.log_id)
+
+        except Exception as ex:  # pylint: disable=broad-exception-caught
+            _LOG.error(
+                "[%s] Error in SmartThings debug query: %s",
+                self.log_id,
+                ex,
+            )
+
     async def query_smartthings_status_direct(
         self, emit: bool = True
     ) -> dict[str, Any]:
@@ -1419,8 +1503,12 @@ class SamsungTv(ExternalClientDevice):
                                 update[MediaAttr.MEDIA_TITLE],
                             )
 
-                    # Supported input sources from supportedInputSources (apps/streaming services)
-                    # These get added to _app_list so they appear in source_list property
+                    # Supported input sources - deduplicate across both supportedInputSources and supportedInputSourcesMap
+                    # Track all sources by ID to prevent duplicates
+                    all_sources = {}
+                    seen_source_ids = set()
+                    
+                    # First, get apps/streaming services from supportedInputSources
                     if "supportedInputSources" in main_component:
                         sources_str = main_component["supportedInputSources"].get(
                             "value", "[]"
@@ -1436,15 +1524,15 @@ class SamsungTv(ExternalClientDevice):
                                 and isinstance(sources_list, list)
                                 and len(sources_list) > 0
                             ):
-                                # Add these to app list (using source name as both key and value)
-                                new_sources = {
-                                    source: source for source in sources_list
-                                }
-                                self._app_list.update(new_sources)
+                                # Add these to temp dict (using source name as both key and value)
+                                for source in sources_list:
+                                    if source not in seen_source_ids:
+                                        seen_source_ids.add(source)
+                                        all_sources[source] = source
                                 _LOG.debug(
-                                    "[%s] SmartThings added %d app sources to app_list",
+                                    "[%s] SmartThings found %d app sources",
                                     self.log_id,
-                                    len(new_sources),
+                                    len(sources_list),
                                 )
                         except (json.JSONDecodeError, TypeError) as ex:
                             _LOG.debug(
@@ -1453,8 +1541,8 @@ class SamsungTv(ExternalClientDevice):
                                 ex,
                             )
 
-                    # supportedInputSourcesMap - detailed source info with IDs and friendly names
-                    # Use this to update source list with better HDMI names
+                    # Then, get HDMI/inputs from supportedInputSourcesMap with friendly names
+                    # This may override some sources from above with better names
                     if "supportedInputSourcesMap" in main_component:
                         sources_map_str = main_component[
                             "supportedInputSourcesMap"
@@ -1466,16 +1554,12 @@ class SamsungTv(ExternalClientDevice):
                                 else sources_map_str
                             )
                             if sources_map and isinstance(sources_map, list):
-                                # Deduplicate sources by ID (some TVs report HDMI1 multiple times)
-                                seen_ids = set()
-                                unique_sources = {}
-
                                 for source_obj in sources_map:
                                     source_id = source_obj.get("id")
                                     source_name = source_obj.get("name")
 
-                                    if source_id and source_id not in seen_ids:
-                                        seen_ids.add(source_id)
+                                    if source_id and source_id not in seen_source_ids:
+                                        seen_source_ids.add(source_id)
                                         # Use the friendly name if available, otherwise use ID
                                         display_name = (
                                             source_name
@@ -1483,14 +1567,11 @@ class SamsungTv(ExternalClientDevice):
                                             and not source_name.startswith("Unknown")
                                             else source_id
                                         )
-                                        unique_sources[display_name] = source_id
-
-                                # Update app list with unique HDMI/input sources
-                                self._app_list.update(unique_sources)
+                                        all_sources[display_name] = source_id
                                 _LOG.debug(
-                                    "[%s] SmartThings added %d unique input sources from map",
+                                    "[%s] SmartThings found %d input sources from map",
                                     self.log_id,
-                                    len(unique_sources),
+                                    len(sources_map),
                                 )
                         except (json.JSONDecodeError, TypeError) as ex:
                             _LOG.debug(
@@ -1498,6 +1579,16 @@ class SamsungTv(ExternalClientDevice):
                                 self.log_id,
                                 ex,
                             )
+                    
+                    # Update app list with all unique sources
+                    if all_sources:
+                        self._app_list.update(all_sources)
+                        _LOG.debug(
+                            "[%s] SmartThings added %d unique sources to app_list (total: %d)",
+                            self.log_id,
+                            len(all_sources),
+                            len(self._app_list),
+                        )
 
                     # If we updated app_list, include refreshed SOURCE_LIST in update
                     if self._app_list:
