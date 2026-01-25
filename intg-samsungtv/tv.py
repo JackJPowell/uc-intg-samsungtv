@@ -11,7 +11,6 @@ import ssl
 import time
 from asyncio import AbstractEventLoop
 from datetime import datetime, timedelta
-from enum import StrEnum
 from typing import Any, cast
 
 import aiohttp
@@ -30,18 +29,11 @@ from samsungtvws.exceptions import HttpApiError
 from samsungtvws.remote import ChannelEmitCommand, SendRemoteKey
 from ucapi import EntityTypes
 from ucapi.media_player import Attributes as MediaAttr
+from ucapi.media_player import States as MediaStates
 from ucapi_framework import ExternalClientDevice, create_entity_id
 from ucapi_framework.device import DeviceEvents
 
 _LOG = logging.getLogger(__name__)
-
-
-class PowerState(StrEnum):
-    """Playback state for companion protocol."""
-
-    OFF = "OFF"
-    ON = "ON"
-    STANDBY = "STANDBY"
 
 
 class SamsungTv(ExternalClientDevice):
@@ -67,7 +59,7 @@ class SamsungTv(ExternalClientDevice):
         self._end_of_power_on: datetime | None = None
         self._active_source: str = ""
         self._power_on_task: asyncio.Task | None = None
-        self._power_state: PowerState | None = None
+        self._power_state: MediaStates | None = None
         self._device_uuid: str | None = None  # TV's UUID from REST API (duid)
         self._muted: bool | None = None  # Mute state from SmartThings
 
@@ -104,10 +96,10 @@ class SamsungTv(ExternalClientDevice):
         return self._device_config.address
 
     @property
-    def state(self) -> PowerState | None:
+    def state(self) -> MediaStates | None:
         """Return the device state."""
         if self._power_state is None:
-            return PowerState.OFF
+            return MediaStates.OFF
         return self._power_state
 
     def check_client_connected(self) -> bool:
@@ -172,10 +164,10 @@ class SamsungTv(ExternalClientDevice):
         )
 
     @property
-    def power_state(self) -> PowerState | None:
+    def power_state(self) -> MediaStates | None:
         """Return the current power state."""
         if self._power_state is None:
-            return PowerState.OFF
+            return MediaStates.OFF
         return self._power_state
 
     @property
@@ -215,16 +207,16 @@ class SamsungTv(ExternalClientDevice):
             await self._client.start_listening(self.handle_remote_event)
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.debug("[%s] Could not connect (TV likely off): %s", self.log_id, err)
-            self._power_state = PowerState.OFF
+            self._power_state = MediaStates.OFF
             self.events.emit(
                 DeviceEvents.UPDATE,
                 self.get_entity_id(),
-                {MediaAttr.STATE: PowerState.OFF},
+                {MediaAttr.STATE: MediaStates.OFF},
             )
             self.events.emit(
                 DeviceEvents.UPDATE,
                 create_entity_id(EntityTypes.REMOTE, self.identifier),
-                {MediaAttr.STATE: PowerState.OFF},
+                {MediaAttr.STATE: MediaStates.OFF},
             )
             return
 
@@ -238,11 +230,11 @@ class SamsungTv(ExternalClientDevice):
         # Verify connection - if not alive, TV is just off
         if not self._client.is_alive():
             _LOG.debug("[%s] Connection not alive, TV is off", self.log_id)
-            self._power_state = PowerState.OFF
+            self._power_state = MediaStates.OFF
             self.events.emit(
                 DeviceEvents.UPDATE,
                 self.get_entity_id(),
-                {MediaAttr.STATE: PowerState.OFF},
+                {MediaAttr.STATE: MediaStates.OFF},
             )
             return
 
@@ -429,18 +421,18 @@ class SamsungTv(ExternalClientDevice):
             self._client = None
 
         self._is_connected = False
-        self._power_state = PowerState.OFF
+        self._power_state = MediaStates.OFF
 
         # Emit OFF state for both entities instead of DISCONNECTED
         self.events.emit(
             DeviceEvents.UPDATE,
             self.get_entity_id(),
-            {MediaAttr.STATE: PowerState.OFF},
+            {MediaAttr.STATE: MediaStates.OFF},
         )
         self.events.emit(
             DeviceEvents.UPDATE,
             create_entity_id(EntityTypes.REMOTE, self.identifier),
-            {MediaAttr.STATE: PowerState.OFF},
+            {MediaAttr.STATE: MediaStates.OFF},
         )
         _LOG.debug("[%s] Disconnected", self.log_id)
 
@@ -706,7 +698,7 @@ class SamsungTv(ExternalClientDevice):
             await self.send_key("KEY_POWER")
             self._end_of_power_off = None
             self._power_on_task = asyncio.create_task(self.power_on_wol())
-            update[MediaAttr.STATE] = PowerState.ON
+            update[MediaAttr.STATE] = MediaStates.ON
             self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
             return
 
@@ -717,7 +709,7 @@ class SamsungTv(ExternalClientDevice):
         # Determine target power state
         if power is None:
             self.get_power_state()
-            power = self._power_state in [PowerState.OFF, PowerState.STANDBY]
+            power = self._power_state in [MediaStates.OFF, MediaStates.STANDBY]
 
         if power:
             # === POWER ON ===
@@ -733,14 +725,14 @@ class SamsungTv(ExternalClientDevice):
         """Handle turning the TV on."""
         # For all TVs, check current power state
         # REST API should work for both old and new TVs
-        if self._power_state == PowerState.ON:
+        if self._power_state == MediaStates.ON:
             _LOG.debug("[%s] Device is already fully ON", self.log_id)
             return
-        elif self._power_state == PowerState.STANDBY:
+        elif self._power_state == MediaStates.STANDBY:
             # TV is in standby/art mode - just send power key
             _LOG.debug("[%s] Device in STANDBY, sending KEY_POWER", self.log_id)
             await self.send_key("KEY_POWER")
-            self._power_state = PowerState.ON
+            self._power_state = MediaStates.ON
         else:
             # TV is completely off - try SmartThings first if configured, then WOL
             # The WOL loop will detect when TV is on regardless of which method works
@@ -758,7 +750,7 @@ class SamsungTv(ExternalClientDevice):
             _LOG.debug("[%s] Device is OFF, initiating Wake-on-LAN", self.log_id)
             self._end_of_power_on = datetime.utcnow() + timedelta(seconds=17)
             self._power_on_task = asyncio.create_task(self.power_on_wol())
-            self._power_state = PowerState.ON
+            self._power_state = MediaStates.ON
 
     async def _handle_power_off(self) -> None:
         """Handle turning the TV off."""
@@ -781,7 +773,7 @@ class SamsungTv(ExternalClientDevice):
             # These typically transition to standby quickly (REST API will report "standby")
             _LOG.debug("[%s] Frame TV: will enter art mode/standby", self.log_id)
             self._end_of_power_off = datetime.utcnow() + timedelta(seconds=5)
-            self._power_state = PowerState.STANDBY
+            self._power_state = MediaStates.STANDBY
         else:
             # Regular TVs - power off fully, but network connection can take
             # up to 65 seconds to drop. REST API should report "off" immediately though.
@@ -790,7 +782,7 @@ class SamsungTv(ExternalClientDevice):
                 self.log_id,
             )
             self._end_of_power_off = datetime.utcnow() + timedelta(seconds=65)
-            self._power_state = PowerState.OFF
+            self._power_state = MediaStates.OFF
 
     async def power_on_wol(self) -> None:
         """
@@ -812,7 +804,7 @@ class SamsungTv(ExternalClientDevice):
 
             # Check actual power state via REST API (works for all TVs)
             self.get_power_state()
-            if self._power_state == PowerState.ON:
+            if self._power_state == MediaStates.ON:
                 _LOG.debug("[%s] TV powered on successfully (state: ON)", self.log_id)
                 break
             else:
@@ -824,7 +816,7 @@ class SamsungTv(ExternalClientDevice):
 
         # Final state check
         self.get_power_state()
-        if self._power_state != PowerState.ON:
+        if self._power_state != MediaStates.ON:
             _LOG.warning(
                 "[%s] Unable to wake TV after 8 attempts (final state: %s)",
                 self.log_id,
@@ -855,21 +847,21 @@ class SamsungTv(ExternalClientDevice):
                 # REST API successfully returned power state
                 match power_state:
                     case "on":
-                        self._power_state = PowerState.ON
+                        self._power_state = MediaStates.ON
                         self._end_of_power_on = None
                         _LOG.debug("[%s] REST API reports: ON", self.log_id)
                     case "standby":
-                        self._power_state = PowerState.STANDBY
+                        self._power_state = MediaStates.STANDBY
                         _LOG.debug(
                             "[%s] REST API reports: STANDBY (art mode/quick-start)",
                             self.log_id,
                         )
                     case "off":
-                        self._power_state = PowerState.OFF
+                        self._power_state = MediaStates.OFF
                         _LOG.debug("[%s] REST API reports: OFF", self.log_id)
                     case _:
                         # Unknown power state from REST API
-                        self._power_state = PowerState.OFF
+                        self._power_state = MediaStates.OFF
                         _LOG.debug(
                             "[%s] REST API reports unknown state: %s (assuming OFF)",
                             self.log_id,
@@ -881,7 +873,7 @@ class SamsungTv(ExternalClientDevice):
                     "[%s] REST API failed to return power state - TV likely OFF",
                     self.log_id,
                 )
-                self._power_state = PowerState.OFF
+                self._power_state = MediaStates.OFF
         else:
             # This TV doesn't report power state via REST API
             # Fall back to network connection state with grace period handling
@@ -892,12 +884,12 @@ class SamsungTv(ExternalClientDevice):
                     # User just requested power off, but network connection is still alive
                     # (can take up to 65 seconds for older TVs to drop connection)
                     # This grace period prevents false "on" state during shutdown
-                    self._power_state = PowerState.OFF
+                    self._power_state = MediaStates.OFF
                     _LOG.debug(
                         "[%s] Network alive but in power-off grace period", self.log_id
                     )
                 else:
-                    self._power_state = PowerState.ON
+                    self._power_state = MediaStates.ON
                     _LOG.debug(
                         "[%s] Network connection alive and no power-off pending - assuming ON",
                         self.log_id,
@@ -905,7 +897,7 @@ class SamsungTv(ExternalClientDevice):
                     self._end_of_power_on = None
             else:
                 _LOG.debug("[%s] Network connection not alive - TV is OFF", self.log_id)
-                self._power_state = PowerState.OFF
+                self._power_state = MediaStates.OFF
 
         update[MediaAttr.STATE] = self._power_state
         self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
@@ -1316,7 +1308,7 @@ class SamsungTv(ExternalClientDevice):
     async def debug_smartthings_all_attributes(self) -> None:
         """
         Debug method to query and print all SmartThings attributes.
-        
+
         Queries the raw SmartThings API and prints every attribute available
         for debugging and discovery purposes.
         """
@@ -1355,37 +1347,60 @@ class SamsungTv(ExternalClientDevice):
                         return
 
                     data = await resp.json()
-                    
-                    _LOG.info("[%s] ========== SmartThings Debug: All Attributes ==========", self.log_id)
-                    
+
+                    _LOG.info(
+                        "[%s] ========== SmartThings Debug: All Attributes ==========",
+                        self.log_id,
+                    )
+
                     # Iterate through all components
                     for component_name, component_data in data.items():
                         _LOG.info("[%s] Component: %s", self.log_id, component_name)
-                        
+
                         if isinstance(component_data, dict):
                             # Iterate through all attributes in this component
                             for attr_name, attr_value in component_data.items():
-                                _LOG.info("[%s]   Attribute: %s", self.log_id, attr_name)
-                                _LOG.info("[%s]     Raw Value: %s", self.log_id, attr_value)
-                                
+                                _LOG.info(
+                                    "[%s]   Attribute: %s", self.log_id, attr_name
+                                )
+                                _LOG.info(
+                                    "[%s]     Raw Value: %s", self.log_id, attr_value
+                                )
+
                                 # If it's a dict with 'value', show the parsed value too
-                                if isinstance(attr_value, dict) and 'value' in attr_value:
-                                    _LOG.info("[%s]     Extracted Value: %s", self.log_id, attr_value.get('value'))
-                                    
+                                if (
+                                    isinstance(attr_value, dict)
+                                    and "value" in attr_value
+                                ):
+                                    _LOG.info(
+                                        "[%s]     Extracted Value: %s",
+                                        self.log_id,
+                                        attr_value.get("value"),
+                                    )
+
                                     # Try to parse JSON strings
-                                    value_str = attr_value.get('value')
-                                    if isinstance(value_str, str) and (value_str.startswith('[') or value_str.startswith('{')):
+                                    value_str = attr_value.get("value")
+                                    if isinstance(value_str, str) and (
+                                        value_str.startswith("[")
+                                        or value_str.startswith("{")
+                                    ):
                                         try:
                                             parsed = json.loads(value_str)
-                                            _LOG.info("[%s]     Parsed JSON: %s", self.log_id, parsed)
+                                            _LOG.info(
+                                                "[%s]     Parsed JSON: %s",
+                                                self.log_id,
+                                                parsed,
+                                            )
                                         except (json.JSONDecodeError, TypeError):
                                             pass
-                                
+
                                 _LOG.info("[%s]   ---", self.log_id)
                         else:
                             _LOG.info("[%s]   Data: %s", self.log_id, component_data)
-                    
-                    _LOG.info("[%s] ========== End SmartThings Debug ==========", self.log_id)
+
+                    _LOG.info(
+                        "[%s] ========== End SmartThings Debug ==========", self.log_id
+                    )
 
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.error(
@@ -1507,7 +1522,7 @@ class SamsungTv(ExternalClientDevice):
                     # Track all sources by ID to prevent duplicates
                     all_sources = {}
                     seen_source_ids = set()
-                    
+
                     # First, get apps/streaming services from supportedInputSources
                     if "supportedInputSources" in main_component:
                         sources_str = main_component["supportedInputSources"].get(
@@ -1579,7 +1594,7 @@ class SamsungTv(ExternalClientDevice):
                                 self.log_id,
                                 ex,
                             )
-                    
+
                     # Update app list with all unique sources
                     if all_sources:
                         self._app_list.update(all_sources)
@@ -1626,7 +1641,7 @@ class SamsungTv(ExternalClientDevice):
         to reach it. Use WOL if needed before calling this.
         """
         # Ensure TV is awake (SmartThings needs network connection)
-        if self._power_state != PowerState.ON:
+        if self._power_state != MediaStates.ON:
             _LOG.debug(
                 "[%s] TV is off, waking via WOL before SmartThings command", self.log_id
             )
