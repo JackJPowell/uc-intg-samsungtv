@@ -30,7 +30,11 @@ from samsungtvws.remote import ChannelEmitCommand, SendRemoteKey
 from ucapi import EntityTypes
 from ucapi.media_player import Attributes as MediaAttr
 from ucapi.media_player import States as MediaStates
-from ucapi_framework import ExternalClientDevice, create_entity_id
+from ucapi_framework import (
+    ExternalClientDevice,
+    create_entity_id,
+    BaseIntegrationDriver,
+)
 from ucapi_framework.device import DeviceEvents
 
 _LOG = logging.getLogger(__name__)
@@ -44,6 +48,7 @@ class SamsungTv(ExternalClientDevice):
         device_config: SamsungConfig,
         loop: AbstractEventLoop | None = None,
         config_manager=None,
+        driver: BaseIntegrationDriver | None = None,
     ) -> None:
         """Create instance."""
         super().__init__(
@@ -52,6 +57,7 @@ class SamsungTv(ExternalClientDevice):
             enable_watchdog=False,
             max_reconnect_attempts=None,
             config_manager=config_manager,
+            driver=driver,
         )
         self._mac_address: str = device_config.mac_address
         self._app_list: dict[str, str] = {}
