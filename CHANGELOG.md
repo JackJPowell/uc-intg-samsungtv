@@ -21,15 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Per-device SmartThings worker tracking.** Each configured TV now remembers which SmartThings app registration it was set up against. Token refreshes are directed to the correct registration, preventing failures that would otherwise occur if requests were routed to a registration that does not hold the user's tokens.
 
-### Fixed
+- **Discovery & oAuth Flow** You can now access the oAuth flow when your TV is discovered.
 
-- Fixed a setup crash that occurred when submitting SmartThings OAuth tokens during discovery-based setup. The response handler called `.lower()` on the `enable_smartthings` field unconditionally, but that field is absent when the token submission screen is active, causing a silent failure that left all SmartThings config values as null.
-
-- Fixed the SmartThings setup screen appearing twice when a TV was added via discovery with the SmartThings checkbox already checked. The integration now proceeds directly to the authorization link screen instead of asking again.
-
-- Fixed SmartThings checkbox handling. The Remote sends checkbox values as the strings `"true"` and `"false"` rather than booleans. The previous code treated the string `"false"` as truthy, which could cause SmartThings setup to trigger unexpectedly.
-
-- Fixed the app list select entity showing a blank current value. The active source reported by SmartThings uses different casing than the app list keys returned by the TV. Matching is now case-insensitive so the displayed selection stays accurate. The selected app is also reflected immediately after launch rather than waiting for the next SmartThings poll.
 
 ---
 
