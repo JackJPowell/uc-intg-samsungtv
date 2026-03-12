@@ -112,16 +112,18 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
 
         # If SmartThings was already requested via the discovery checkbox, skip
         # straight to the OAuth screen without asking again.
-        enable_from_discovery = str(
-            previous_input.get("enable_smartthings", "false")
-        ).lower() == "true"
+        enable_from_discovery = (
+            str(previous_input.get("enable_smartthings", "false")).lower() == "true"
+        )
         if enable_from_discovery:
             self._smartthings_enabled = True
             result = await self._get_oauth_auth_screen()
             if isinstance(result, RequestUserInput):
                 return result
             # OAuth screen failed — log and fall through to show checkbox instead
-            _LOG.warning("Failed to get OAuth screen from discovery path; showing checkbox fallback")
+            _LOG.warning(
+                "Failed to get OAuth screen from discovery path; showing checkbox fallback"
+            )
 
         return RequestUserInput(
             {"en": "SmartThings Setup (Optional)"},
@@ -261,7 +263,7 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         try:
             reports_power_state = False
             if ip is None:
-                return get_manual_entry_form()
+                return self.get_manual_entry_form()
 
             _LOG.debug("Connecting to Samsung TV at %s", ip)
 
@@ -275,7 +277,7 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
             info = tv.rest_device_info()
             tv.close()
 
-            if info and info.get("device", None).get("PowerState", None) is not None:
+            if info and info.get("device", None).get("PowerState", None) is not None:  # type: ignore[union-attr]
                 reports_power_state = True
 
             _LOG.info("Samsung TV info: %s", info)
@@ -288,11 +290,11 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
             ):
                 _LOG.info(
                     "Skipping found device %s: already configured",
-                    info.get("device").get("name"),
+                    info.get("device").get("name"),  # type: ignore[union-attr]
                 )
                 return SetupError(IntegrationSetupError.OTHER)
             # HTML-decode the name to convert entities like &quot; to actual quotes
-            raw_name = info.get("device").get("name")
+            raw_name = info.get("device").get("name")  # type: ignore[union-attr]
             decoded_name = html.unescape(raw_name)
             name = re.sub(r"^\[TV\] ", "", decoded_name)
 
@@ -305,7 +307,7 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
                 "name": name,
                 "token": tv.token,
                 "address": ip,
-                "mac_address": info.get("device").get("wifiMac"),
+                "mac_address": info.get("device").get("wifiMac"),  # type: ignore[union-attr]
                 "reports_power_state": reports_power_state,
             }
 
