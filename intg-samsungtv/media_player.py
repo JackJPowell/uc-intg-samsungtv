@@ -10,9 +10,9 @@ from typing import Any
 import ucapi
 from const import SamsungConfig, SimpleCommands
 from tv import SamsungTv
-from ucapi import EntityTypes, MediaPlayer, StatusCodes, media_player
+from ucapi import EntityTypes, StatusCodes, media_player
 from ucapi.media_player import Attributes, DeviceClasses
-from ucapi_framework import create_entity_id
+from ucapi_framework import MediaPlayerEntity, create_entity_id
 
 _LOG = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ features = [
 ]
 
 
-class SamsungMediaPlayer(MediaPlayer):
+class SamsungMediaPlayer(MediaPlayerEntity):
     """Representation of a Samsung MediaPlayer entity."""
 
     def __init__(self, config_device: SamsungConfig, device: SamsungTv):
@@ -73,9 +73,9 @@ class SamsungMediaPlayer(MediaPlayer):
             config_device.name,
             features,
             attributes={
-                Attributes.STATE: device.state,
-                Attributes.SOURCE: device.source if device.source else "",
-                Attributes.SOURCE_LIST: device.source_list,
+                Attributes.STATE: media_player.States.UNKNOWN,
+                Attributes.SOURCE: "",
+                Attributes.SOURCE_LIST: [],
                 Attributes.VOLUME: 0,
                 Attributes.MUTED: False,
                 Attributes.MEDIA_TITLE: "",
@@ -86,9 +86,29 @@ class SamsungMediaPlayer(MediaPlayer):
             cmd_handler=self.media_player_cmd_handler,
         )
 
+        # Subscribe to device updates — sync_state() will be called on every push_update()
+        self.subscribe_to_device(device)
+
+    async def sync_state(self) -> None:
+        """Sync entity state from device properties to the Remote."""
+        self.update(
+            {
+                Attributes.STATE: self._device.state,
+                Attributes.SOURCE: self._device.source,
+                Attributes.SOURCE_LIST: self._device.source_list,
+                Attributes.VOLUME: self._device.volume,
+                Attributes.MUTED: self._device.muted,
+                Attributes.MEDIA_TITLE: self._device.media_title,
+            }
+        )
+
     # pylint: disable=too-many-statements
     async def media_player_cmd_handler(
-        self, entity: MediaPlayer, cmd_id: str, params: dict[str, Any] | None, websocket
+        self,
+        entity: MediaPlayerEntity,
+        cmd_id: str,
+        params: dict[str, Any] | None,
+        websocket,
     ) -> StatusCodes:
         """
         Media-player entity command handler.
@@ -103,6 +123,10 @@ class SamsungMediaPlayer(MediaPlayer):
         _LOG.info(
             "Got %s command request: %s %s", entity.id, cmd_id, params if params else ""
         )
+
+        if self._device is None:
+            _LOG.warning("No Samsung instance for entity: %s", entity.id)
+            return StatusCodes.SERVICE_UNAVAILABLE
 
         try:
             match cmd_id:
@@ -180,7 +204,7 @@ class SamsungMediaPlayer(MediaPlayer):
                 case media_player.Commands.PLAY_PAUSE:
                     await self._device.send_key("KEY_PLAY_BACK")
                 case media_player.Commands.SELECT_SOURCE:
-                    await self._device.launch_app(app_name=params.get("source"))
+                    await self._device.launch_app(app_name=(params or {}).get("source"))
                 case media_player.Commands.SETTINGS:
                     await self._device.send_key("KEY_TOOLS")
                 case media_player.Commands.FUNCTION_RED:

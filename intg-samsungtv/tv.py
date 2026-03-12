@@ -16,10 +16,7 @@ from typing import Any, cast
 import aiohttp
 import certifi
 import wakeonlan
-from const import (
-    SamsungConfig,
-    SMARTTHINGS_WORKER_REFRESH,
-)
+from const import SamsungConfig
 from pysmartthings import SmartThings
 from samsungtvws import SamsungTVWS
 from samsungtvws.async_remote import SamsungTVWSAsyncRemote
@@ -27,15 +24,11 @@ from samsungtvws.async_rest import SamsungTVAsyncRest
 from samsungtvws.event import ED_INSTALLED_APP_EVENT, parse_installed_app
 from samsungtvws.exceptions import HttpApiError
 from samsungtvws.remote import ChannelEmitCommand, SendRemoteKey
-from ucapi import EntityTypes
 from ucapi.media_player import Attributes as MediaAttr
 from ucapi.media_player import States as MediaStates
-from ucapi_framework import (
-    ExternalClientDevice,
-    create_entity_id,
-    BaseIntegrationDriver,
-)
-from ucapi_framework.device import DeviceEvents
+from ucapi.select import States as SelectStates
+from ucapi_framework import BaseIntegrationDriver, ExternalClientDevice
+from ucapi_framework.helpers import SelectAttributes
 
 _LOG = logging.getLogger(__name__)
 
@@ -59,7 +52,7 @@ class SamsungTv(ExternalClientDevice):
             config_manager=config_manager,
             driver=driver,
         )
-        self._mac_address: str = device_config.mac_address
+        self._mac_address: str = device_config.mac_address or ""
         self._app_list: dict[str, str] = {}
         self._end_of_power_off: datetime | None = None
         self._end_of_power_on: datetime | None = None
@@ -68,6 +61,10 @@ class SamsungTv(ExternalClientDevice):
         self._power_state: MediaStates | None = None
         self._device_uuid: str | None = None  # TV's UUID from REST API (duid)
         self._muted: bool | None = None  # Mute state from SmartThings
+        self._volume: int | None = None  # Volume level from SmartThings
+        self._media_title: str | None = (
+            None  # Current channel/media title from SmartThings
+        )
 
         # SmartThings Cloud API client (optional - for advanced features like input source)
         self._smartthings_api: SmartThings | None = None
@@ -142,9 +139,66 @@ class SamsungTv(ExternalClientDevice):
         return self._active_source
 
     @property
+    def volume(self) -> int | None:
+        """Return the current volume level (0-100)."""
+        return self._volume
+
+    @property
+    def muted(self) -> bool | None:
+        """Return the current mute state."""
+        return self._muted
+
+    @property
+    def media_title(self) -> str | None:
+        """Return the current media/channel title."""
+        return self._media_title
+
+    @property
+    def app_list(self) -> dict[str, str]:
+        """Return the dict of installed apps {name: appId}."""
+        return self._app_list
+
+    def get_select_attributes(self) -> Any:
+        """Return current select attributes for the app-list select entity."""
+
+        state = (
+            SelectStates.ON
+            if self._power_state == MediaStates.ON
+            else SelectStates.UNAVAILABLE
+        )
+        # Match _active_source against app list keys case-insensitively so that
+        # SmartThings casing (e.g. "netflix") maps to display names (e.g. "Netflix").
+        app_list_lower = {k.lower(): k for k in self._app_list}
+        matched_name = app_list_lower.get(self._active_source.lower(), "")
+
+        return SelectAttributes(
+            STATE=state,
+            CURRENT_OPTION=matched_name,
+            OPTIONS=sorted(self._app_list.keys()),
+        )
+
+    async def select_option(self, app_name: str) -> bool:
+        """Launch an app by name and return True on success."""
+        if app_name not in self._app_list:
+            _LOG.warning(
+                "[%s] Unknown app '%s' in select_option", self.log_id, app_name
+            )
+            return False
+        try:
+            await self.launch_app(app_name=app_name)
+            # Optimistically update active source so the select entity reflects
+            # the selection immediately, before SmartThings confirms it.
+            self._active_source = app_name
+            self.push_update()
+            return True
+        except Exception as ex:  # pylint: disable=broad-exception-caught
+            _LOG.error("[%s] Failed to launch app '%s': %s", self.log_id, app_name, ex)
+            return False
+
+    @property
     def attributes(self) -> dict[str, Any]:
         """Return the device attributes."""
-        updated_data = {
+        updated_data: dict[str, Any] = {
             MediaAttr.STATE: self.state,
         }
         if self.source_list:
@@ -214,16 +268,7 @@ class SamsungTv(ExternalClientDevice):
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.debug("[%s] Could not connect (TV likely off): %s", self.log_id, err)
             self._power_state = MediaStates.OFF
-            self.events.emit(
-                DeviceEvents.UPDATE,
-                self.get_entity_id(),
-                {MediaAttr.STATE: MediaStates.OFF},
-            )
-            self.events.emit(
-                DeviceEvents.UPDATE,
-                create_entity_id(EntityTypes.REMOTE, self.identifier),
-                {MediaAttr.STATE: MediaStates.OFF},
-            )
+            self.push_update()
             return
 
         # Update token if it changed during connection
@@ -237,20 +282,11 @@ class SamsungTv(ExternalClientDevice):
         if not self._client.is_alive():
             _LOG.debug("[%s] Connection not alive, TV is off", self.log_id)
             self._power_state = MediaStates.OFF
-            self.events.emit(
-                DeviceEvents.UPDATE,
-                self.get_entity_id(),
-                {MediaAttr.STATE: MediaStates.OFF},
-            )
+            self.push_update()
             return
 
         # Get initial state
         self.get_power_state()
-        self.events.emit(
-            DeviceEvents.UPDATE,
-            self.get_entity_id(),
-            {MediaAttr.STATE: self._power_state},
-        )
 
         # Get device UUID from REST API for SmartThings matching
         device_info = self.get_device_info()
@@ -350,7 +386,10 @@ class SamsungTv(ExternalClientDevice):
                 }
 
                 async with session.post(
-                    SMARTTHINGS_WORKER_REFRESH,
+                    # Use the worker URL assigned during setup so each user always
+                    # hits their own sub-worker (which holds the matching client credentials).
+                    # Fall back to the coordinator for configs created before multi-worker support.
+                    f"{self._device_config.smartthings_worker_url or 'https://smartthings.jackattack51.workers.dev'}/refresh",
                     json=data,
                     headers={"Content-Type": "application/json"},
                 ) as response:
@@ -429,17 +468,8 @@ class SamsungTv(ExternalClientDevice):
         self._is_connected = False
         self._power_state = MediaStates.OFF
 
-        # Emit OFF state for both entities instead of DISCONNECTED
-        self.events.emit(
-            DeviceEvents.UPDATE,
-            self.get_entity_id(),
-            {MediaAttr.STATE: MediaStates.OFF},
-        )
-        self.events.emit(
-            DeviceEvents.UPDATE,
-            create_entity_id(EntityTypes.REMOTE, self.identifier),
-            {MediaAttr.STATE: MediaStates.OFF},
-        )
+        # Notify entities of OFF state
+        self.push_update()
         _LOG.debug("[%s] Disconnected", self.log_id)
 
     async def close(self) -> None:
@@ -486,19 +516,8 @@ class SamsungTv(ExternalClientDevice):
     async def _update_app_list(self) -> None:
         """Update the list of installed applications."""
         _LOG.debug("[%s] Updating app list", self.log_id)
-        update = {}
 
         try:
-            # Always include standard inputs
-            update[MediaAttr.SOURCE_LIST] = [
-                "TV",
-                "HDMI",
-                "HDMI1",
-                "HDMI2",
-                "HDMI3",
-                "HDMI4",
-            ]
-
             if self._client and self._client.is_alive():
                 # Request app list - this returns the parsed list directly
                 app_list = await self._client.app_list()
@@ -520,15 +539,13 @@ class SamsungTv(ExternalClientDevice):
                     )
                     await self._get_app_list_via_remote()
 
-            # Add all installed apps to source list
+            # Log result
             if self._app_list:
                 _LOG.debug(
-                    "[%s] Adding %d apps to source list",
+                    "[%s] App list updated with %d apps",
                     self.log_id,
                     len(self._app_list),
                 )
-                for app_name in sorted(self._app_list.keys()):
-                    update[MediaAttr.SOURCE_LIST].append(app_name)
             else:
                 _LOG.warning("[%s] No apps found in app list", self.log_id)
                 # Try SmartThings as fallback if enabled
@@ -547,20 +564,17 @@ class SamsungTv(ExternalClientDevice):
                         # Merge SmartThings sources into _app_list so they persist
                         # and are included in the source_list property
                         self._app_list.update(smartthings_sources)
-                        # Add to update - source_list property will now include these
-                        for source_name in sorted(smartthings_sources.keys()):
-                            update[MediaAttr.SOURCE_LIST].append(source_name)
 
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.exception("[%s] Error updating app list: %s", self.log_id, ex)
 
-        # Emit update with source list
+        # Notify entities of updated source list
         _LOG.debug(
-            "[%s] Emitting source list with %d items",
+            "[%s] Pushing source list update with %d items",
             self.log_id,
-            len(update.get(MediaAttr.SOURCE_LIST, [])),
+            len(self.source_list),
         )
-        self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
+        self.push_update()
 
     async def _get_app_list_via_remote(self) -> dict[str, str]:
         if not self.is_connected:
@@ -694,8 +708,6 @@ class SamsungTv(ExternalClientDevice):
         Frame TVs maintain network connection even when off/in standby, so we use
         REST API to determine actual power state. Older TVs use network connection.
         """
-        update = {}
-
         if self.power_off_in_progress:
             _LOG.debug(
                 "[%s] TV is powering off, canceling and attempting power on",
@@ -704,8 +716,8 @@ class SamsungTv(ExternalClientDevice):
             await self.send_key("KEY_POWER")
             self._end_of_power_off = None
             self._power_on_task = asyncio.create_task(self.power_on_wol())
-            update[MediaAttr.STATE] = MediaStates.ON
-            self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
+            self._power_state = MediaStates.ON
+            self.push_update()
             return
 
         if self.power_on_in_progress:
@@ -724,8 +736,7 @@ class SamsungTv(ExternalClientDevice):
             # === POWER OFF ===
             await self._handle_power_off()
 
-        update[MediaAttr.STATE] = self._power_state
-        self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
+        self.push_update()
 
     async def _handle_power_on(self) -> None:
         """Handle turning the TV on."""
@@ -797,7 +808,6 @@ class SamsungTv(ExternalClientDevice):
         Sends magic packets and waits for the TV to respond.
         Uses REST API to check actual power state (works for all Samsung TVs).
         """
-        update = {}
         _LOG.debug("[%s] Starting Wake-on-LAN sequence", self.log_id)
 
         for i in range(8):
@@ -830,8 +840,7 @@ class SamsungTv(ExternalClientDevice):
             )
 
         self._end_of_power_on = None
-        update[MediaAttr.STATE] = self._power_state
-        self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
+        self.push_update()
 
     def get_power_state(self) -> None:
         """
@@ -840,14 +849,11 @@ class SamsungTv(ExternalClientDevice):
         REST API works for all Samsung TVs, but only TVs with reports_power_state=True
         actually report their power state. For others, fall back to network state.
         """
-        update = {}
-
         if self.device_config.reports_power_state:
             # This TV is configured to report power state via REST API
             # Query the REST API for actual power state
-            power_state = (
-                self.get_device_info().get("device", None).get("PowerState", None)
-            )
+            device_info = self.get_device_info()
+            power_state = device_info.get("device", {}).get("PowerState", None)
 
             if power_state:
                 # REST API successfully returned power state
@@ -905,8 +911,7 @@ class SamsungTv(ExternalClientDevice):
                 _LOG.debug("[%s] Network connection not alive - TV is OFF", self.log_id)
                 self._power_state = MediaStates.OFF
 
-        update[MediaAttr.STATE] = self._power_state
-        self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
+        self.push_update()
 
     def handle_remote_event(self, event: str, response: Any) -> None:
         """Handle remote events."""
@@ -923,19 +928,8 @@ class SamsungTv(ExternalClientDevice):
                 "[%s] Installed apps updated via event: %d apps", self.log_id, len(apps)
             )
 
-            # Emit update with the new app list
-            update = {
-                MediaAttr.SOURCE_LIST: [
-                    "TV",
-                    "HDMI",
-                    "HDMI1",
-                    "HDMI2",
-                    "HDMI3",
-                    "HDMI4",
-                ]
-                + sorted(self._app_list.keys())
-            }
-            self.events.emit(DeviceEvents.UPDATE, self.get_entity_id(), update)
+            # Notify entities of updated app list
+            self.push_update()
 
     def get_device_info(self) -> dict[str, Any]:
         """Get REST info from the TV."""
@@ -1472,6 +1466,7 @@ class SamsungTv(ExternalClientDevice):
                     if "volume" in main_component:
                         volume_obj = main_component["volume"]
                         volume = int(volume_obj.get("value", 0))
+                        self._volume = volume
                         update[MediaAttr.VOLUME] = volume
                         _LOG.debug("[%s] SmartThings volume: %d", self.log_id, volume)
 
@@ -1517,11 +1512,12 @@ class SamsungTv(ExternalClientDevice):
                         if channel_name:
                             channel_parts.append(channel_name)
                         if channel_parts:
-                            update[MediaAttr.MEDIA_TITLE] = " - ".join(channel_parts)
+                            self._media_title = " - ".join(channel_parts)
+                            update[MediaAttr.MEDIA_TITLE] = self._media_title
                             _LOG.debug(
                                 "[%s] SmartThings channel: %s",
                                 self.log_id,
-                                update[MediaAttr.MEDIA_TITLE],
+                                self._media_title,
                             )
 
                     # Supported input sources - deduplicate across both supportedInputSources and supportedInputSourcesMap
@@ -1620,11 +1616,9 @@ class SamsungTv(ExternalClientDevice):
                             len(self.source_list),
                         )
 
-                    # Emit update if requested
+                    # Notify entities if requested
                     if emit and update:
-                        self.events.emit(
-                            DeviceEvents.UPDATE, self.get_entity_id(), update
-                        )
+                        self.push_update()
 
                     return update
 
@@ -1873,10 +1867,6 @@ class SamsungTv(ExternalClientDevice):
         finally:
             if rest:
                 rest.close()
-
-    def get_entity_id(self) -> str:
-        """Return the entity ID for this device."""
-        return create_entity_id(EntityTypes.MEDIA_PLAYER, self.identifier)
 
 
 class RestTV:

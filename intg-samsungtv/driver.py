@@ -13,6 +13,7 @@ from const import SamsungConfig
 from discover import SamsungTVDiscovery
 from media_player import SamsungMediaPlayer
 from remote import SamsungRemote
+from select_entity import SamsungAppSelect
 from setup import SamsungSetupFlow
 from tv import SamsungTv
 from ucapi_framework import BaseConfigManager, BaseIntegrationDriver, get_config_path
@@ -28,10 +29,15 @@ async def main():
     logging.getLogger("config").setLevel(level)
     logging.getLogger("discover").setLevel(level)
     logging.getLogger("setup").setLevel(level)
+    logging.getLogger("select_entity").setLevel(level)
 
     driver = BaseIntegrationDriver(
         device_class=SamsungTv,
-        entity_classes=[SamsungMediaPlayer, SamsungRemote],
+        entity_classes=[
+            SamsungMediaPlayer,
+            SamsungRemote,
+            SamsungAppSelect,
+        ],
     )
 
     driver.config_manager = BaseConfigManager(

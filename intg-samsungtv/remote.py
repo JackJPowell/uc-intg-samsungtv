@@ -11,24 +11,17 @@ from typing import Any
 import ucapi
 from const import SamsungConfig, SimpleCommands
 from tv import SamsungTv
-from ucapi import EntityTypes, Remote, StatusCodes, media_player
-from ucapi.media_player import States as MediaStates
+from ucapi import EntityTypes, StatusCodes, media_player
 from ucapi.remote import Attributes, Commands, Features
 from ucapi.remote import States as RemoteStates
 from ucapi.ui import Buttons, DeviceButtonMapping
-from ucapi_framework import create_entity_id
+from ucapi_framework import RemoteEntity, create_entity_id
+from ucapi.media_player import States as MediaStates
 
 _LOG = logging.getLogger(__name__)
 
-SAMSUNG_REMOTE_STATE_MAPPING = {
-    MediaStates.UNKNOWN: RemoteStates.UNKNOWN,
-    MediaStates.UNAVAILABLE: RemoteStates.UNAVAILABLE,
-    MediaStates.OFF: RemoteStates.OFF,
-    MediaStates.ON: RemoteStates.ON,
-}
 
-
-class SamsungRemote(Remote):
+class SamsungRemote(RemoteEntity):
     """Representation of a Samsung Remote entity."""
 
     def __init__(self, config_device: SamsungConfig, device: SamsungTv):
@@ -48,6 +41,26 @@ class SamsungRemote(Remote):
             button_mapping=SAMSUNG_REMOTE_BUTTONS_MAPPING,
             ui_pages=SAMSUNG_REMOTE_UI_PAGES,
         )
+
+        # Subscribe to device updates — sync_state() will be called on every push_update()
+        self.subscribe_to_device(device)
+
+    async def sync_state(self) -> None:
+        """Sync entity state from device to the Remote."""
+
+        device_state = self._device.state
+        # Map MediaStates to RemoteStates
+        match device_state:
+            case MediaStates.OFF:
+                remote_state = RemoteStates.OFF
+            case MediaStates.UNAVAILABLE:
+                remote_state = RemoteStates.UNAVAILABLE
+            case MediaStates.UNKNOWN | None:
+                remote_state = RemoteStates.UNKNOWN
+            case _:
+                # ON, PLAYING, PAUSED, STANDBY, BUFFERING all map to ON
+                remote_state = RemoteStates.ON
+        self.update({Attributes.STATE: remote_state})
 
     def get_int_param(self, param: str, params: dict[str, Any], default: int):
         """Get parameter in integer format."""
@@ -188,7 +201,9 @@ class SamsungRemote(Remote):
                             | media_player.Commands.FAST_FORWARD.value
                         ):
                             # Use SmartThings (local KEY_FF doesn't work correctly)
-                            if not await client.send_smartthings_command("fast_forward"):
+                            if not await client.send_smartthings_command(
+                                "fast_forward"
+                            ):
                                 await client.send_key("KEY_FF", hold_time=hold)
                         case (
                             media_player.Commands.REWIND

@@ -24,57 +24,6 @@ from ucapi_framework import BaseSetupFlow
 
 _LOG = logging.getLogger(__name__)
 
-_MANUAL_INPUT_SCHEMA = RequestUserInput(
-    {"en": "Samsung TV Setup"},
-    [
-        {
-            "id": "info",
-            "label": {
-                "en": "Setup your Samsung TV",
-            },
-            "field": {
-                "label": {
-                    "value": {
-                        "en": (
-                            "Please supply the IP address or Hostname of your Samsung TV."
-                        ),
-                    }
-                }
-            },
-        },
-        {
-            "field": {"text": {"value": ""}},
-            "id": "address",
-            "label": {
-                "en": "IP Address",
-            },
-        },
-        {
-            "id": "smartthings_info",
-            "label": {
-                "en": "SmartThings OAuth (Optional)",
-            },
-            "field": {
-                "label": {
-                    "value": {
-                        "en": (
-                            "Enable SmartThings for advanced features like input source control. "
-                            "Click 'Next' to skip or 'Authorize SmartThings' to set up OAuth."
-                        ),
-                    }
-                }
-            },
-        },
-        {
-            "field": {"checkbox": {"value": False}},
-            "id": "enable_smartthings",
-            "label": {
-                "en": "Authorize SmartThings",
-            },
-        },
-    ],
-)
-
 
 _OAUTH_AUTH_SCHEMA = None  # Will be dynamically generated
 
@@ -88,6 +37,7 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         self._oauth_state: str | None = None
         self._device_info: dict[str, Any] | None = None
         self._smartthings_enabled: bool = False
+        self._assigned_worker_url: str | None = None
 
     def get_manual_entry_form(self) -> RequestUserInput:
         """
@@ -95,7 +45,56 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
 
         :return: RequestUserInput for manual entry
         """
-        return _MANUAL_INPUT_SCHEMA
+        return RequestUserInput(
+            {"en": "Samsung TV Setup"},
+            [
+                {
+                    "id": "info",
+                    "label": {
+                        "en": "Setup your Samsung TV",
+                    },
+                    "field": {
+                        "label": {
+                            "value": {
+                                "en": (
+                                    "Please supply the IP address or Hostname of your Samsung TV."
+                                ),
+                            }
+                        }
+                    },
+                },
+                {
+                    "field": {"text": {"value": ""}},
+                    "id": "address",
+                    "label": {
+                        "en": "IP Address",
+                    },
+                },
+                {
+                    "id": "smartthings_info",
+                    "label": {
+                        "en": "SmartThings OAuth (Optional)",
+                    },
+                    "field": {
+                        "label": {
+                            "value": {
+                                "en": (
+                                    "Enable SmartThings for advanced features like input source control. "
+                                    "Click 'Next' to skip or 'Authorize SmartThings' to set up OAuth."
+                                ),
+                            }
+                        }
+                    },
+                },
+                {
+                    "field": {"checkbox": {"value": False}},
+                    "id": "enable_smartthings",
+                    "label": {
+                        "en": "Authorize SmartThings",
+                    },
+                },
+            ],
+        )
 
     async def get_additional_configuration_screen(
         self, device_config: SamsungConfig, previous_input: dict[str, Any]
@@ -110,6 +109,19 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         # If SmartThings was already enabled, don't show this screen again
         if self._smartthings_enabled:
             return None
+
+        # If SmartThings was already requested via the discovery checkbox, skip
+        # straight to the OAuth screen without asking again.
+        enable_from_discovery = str(
+            previous_input.get("enable_smartthings", "false")
+        ).lower() == "true"
+        if enable_from_discovery:
+            self._smartthings_enabled = True
+            result = await self._get_oauth_auth_screen()
+            if isinstance(result, RequestUserInput):
+                return result
+            # OAuth screen failed — log and fall through to show checkbox instead
+            _LOG.warning("Failed to get OAuth screen from discovery path; showing checkbox fallback")
 
         return RequestUserInput(
             {"en": "SmartThings Setup (Optional)"},
@@ -147,10 +159,7 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         """
         input_values = msg.input_values
 
-        if input_values.get("enable_smartthings").lower() == "false":
-            return None
-
-        # Check if we're handling OAuth tokens
+        # Check if we're handling OAuth token submission (second pass of the SmartThings flow)
         if "tokens_json" in input_values:
             tokens_json = input_values.get("tokens_json", "").strip()
 
@@ -178,6 +187,8 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
                 self._pending_device_config.smartthings_access_token = access_token  # type: ignore
                 self._pending_device_config.smartthings_refresh_token = refresh_token  # type: ignore
                 self._pending_device_config.smartthings_token_expires = expires_at  # type: ignore
+                if self._assigned_worker_url:
+                    self._pending_device_config.smartthings_worker_url = self._assigned_worker_url  # type: ignore
 
                 return None  # Save and complete
 
@@ -188,8 +199,10 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
                 _LOG.error("Error storing OAuth tokens: %s", err, exc_info=True)
                 return SetupError(IntegrationSetupError.OTHER)
 
-        # Check if user wants to enable SmartThings
-        enable_smartthings = input_values.get("enable_smartthings", False)
+        # Check if user wants to enable SmartThings.
+        # The framework sends checkbox values as strings ("true"/"false"), not booleans.
+        enable_smartthings_raw = input_values.get("enable_smartthings", "false")
+        enable_smartthings = str(enable_smartthings_raw).lower() == "true"
 
         if enable_smartthings:
             # Mark SmartThings as enabled so we don't show the checkbox again
@@ -199,6 +212,39 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
 
         # User skipped SmartThings, complete setup
         return None
+
+    def get_additional_discovery_fields(self) -> list[dict]:
+        """Add SmartThings OAuth prompt to the discovery selection screen."""
+        return [
+            {
+                "id": "smartthings_info",
+                "label": {"en": "SmartThings OAuth (Optional)"},
+                "field": {
+                    "label": {
+                        "value": {
+                            "en": (
+                                "Enable SmartThings for advanced features like input source control. "
+                                "Check the box below to set up OAuth after selecting your TV."
+                            )
+                        }
+                    }
+                },
+            },
+            {
+                "field": {"checkbox": {"value": False}},
+                "id": "enable_smartthings",
+                "label": {"en": "Authorize SmartThings"},
+            },
+        ]
+
+    async def prepare_input_from_discovery(
+        self, discovered: Any, additional_input: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Map a discovered Samsung TV to the input_values format expected by query_device."""
+        return {
+            "address": discovered.address,
+            "enable_smartthings": additional_input.get("enable_smartthings", False),
+        }
 
     async def query_device(
         self, input_values: dict[str, Any]
@@ -215,7 +261,7 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         try:
             reports_power_state = False
             if ip is None:
-                return _MANUAL_INPUT_SCHEMA
+                return get_manual_entry_form()
 
             _LOG.debug("Connecting to Samsung TV at %s", ip)
 
@@ -280,10 +326,11 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
             return SetupError(IntegrationSetupError.OTHER)
 
     async def _get_oauth_auth_screen(self) -> RequestUserInput | SetupError:
-        """Generate OAuth authorization screen using worker."""
+        """Generate OAuth authorization screen using coordinator worker."""
         try:
-            # Get authorization URL from worker
-            # Use certifi CA bundle for SSL verification
+            # Get authorization URL from coordinator worker.
+            # The coordinator picks the least-full sub-worker and returns
+            # its base URL so we can store it for all future token operations.
             ssl_context = ssl.create_default_context(cafile=certifi.where())
             connector = aiohttp.TCPConnector(ssl=ssl_context)
             async with aiohttp.ClientSession(connector=connector) as session:
@@ -296,10 +343,16 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
 
                     data = await response.json()
                     auth_url = data.get("authorizationUrl")
+                    worker_url = data.get("workerUrl")
 
                     if not auth_url:
                         _LOG.error("No authorization URL in worker response")
                         return SetupError(IntegrationSetupError.OTHER)
+
+                    # Store the assigned worker URL so handle_additional_configuration_response
+                    # can persist it onto the device config alongside the tokens.
+                    self._assigned_worker_url = worker_url
+                    _LOG.debug("Assigned SmartThings worker: %s", worker_url)
 
                     return RequestUserInput(
                         {"en": "SmartThings OAuth Authorization"},

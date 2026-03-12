@@ -33,6 +33,8 @@ class SamsungConfig:
     """True if the device reports power state via REST API (Frame TVs and some newer models)."""
     supports_art_mode: bool = False
     """True if the device supports art mode (Frame TVs only)."""
+    smartthings_worker_url: str | None = None
+    """Base URL of the assigned SmartThings OAuth worker (e.g. 'https://smartthings1.jackattack51.workers.dev')."""
 
 
 class SimpleCommands(str, Enum):
@@ -67,9 +69,12 @@ SAMSUNG_STATE_MAPPING = {
 
 """SmartThings OAuth constants."""
 
-# OAuth Configuration using Cloudflare Worker proxy
-# Worker keeps client credentials server-side for security
-SMARTTHINGS_WORKER_BASE_URL = "https://smartthings.jackattack51.workers.dev"
-SMARTTHINGS_WORKER_AUTHORIZE = f"{SMARTTHINGS_WORKER_BASE_URL}/authorize"
-SMARTTHINGS_WORKER_CALLBACK = f"{SMARTTHINGS_WORKER_BASE_URL}/oauth/callback"
-SMARTTHINGS_WORKER_REFRESH = f"{SMARTTHINGS_WORKER_BASE_URL}/refresh"
+# Coordinator worker — routes new users to a sub-worker with available capacity.
+# Sub-workers (smartthings1, smartthings2, ...) each have a separate SmartThings
+# app registration with its own 20-user limit. The coordinator picks the least-full
+# one and returns its base URL so the client can store it for all future calls.
+SMARTTHINGS_COORDINATOR_URL = "https://smartthings.jackattack51.workers.dev"
+SMARTTHINGS_WORKER_AUTHORIZE = f"{SMARTTHINGS_COORDINATOR_URL}/authorize"
+
+# Max users per sub-worker SmartThings app (Samsung-imposed limit for non-certified apps)
+SMARTTHINGS_WORKER_CAPACITY = 20
