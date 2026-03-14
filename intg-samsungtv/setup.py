@@ -110,9 +110,33 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         :param previous_input: Input values from the previous screen
         :return: RequestUserInput for SmartThings OAuth or None to skip
         """
-        # If SmartThings was already enabled, don't show this screen again
+        # If SmartThings was already enabled in this flow, don't show this screen again
         if self._smartthings_enabled:
             return None
+
+        # If an existing configured TV already has SmartThings tokens, reuse them
+        # automatically — no need to re-authorize for every additional TV.
+        if self.config is not None:
+            existing = next(
+                (
+                    c
+                    for c in self.config.all()
+                    if c.smartthings_access_token and c.smartthings_refresh_token
+                ),
+                None,
+            )
+            if existing:
+                _LOG.info(
+                    "Reusing SmartThings tokens from existing device config '%s'",
+                    existing.name,
+                )
+                self._smartthings_access_token = existing.smartthings_access_token
+                self._smartthings_refresh_token = existing.smartthings_refresh_token
+                self._smartthings_token_expires = existing.smartthings_token_expires
+                self._assigned_worker_url = existing.smartthings_worker_url
+                self._smartthings_enabled = True
+                self._apply_smartthings_to_config(device_config)
+                return None
 
         # If SmartThings was already requested via the discovery checkbox, skip
         # straight to the OAuth screen without asking again.
@@ -200,7 +224,9 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
                 self._pending_device_config.smartthings_refresh_token = refresh_token  # type: ignore
                 self._pending_device_config.smartthings_token_expires = expires_at  # type: ignore
                 if self._assigned_worker_url:
-                    self._pending_device_config.smartthings_worker_url = self._assigned_worker_url  # type: ignore
+                    self._pending_device_config.smartthings_worker_url = (
+                        self._assigned_worker_url
+                    )  # type: ignore[union-attr]
 
                 return None  # Save and complete
 
@@ -347,8 +373,8 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
             }
 
             # Create device config. The framework will call get_additional_configuration_screen
-            # after this if additional configuration steps are required.
-            config = SamsungConfig(
+            # after this to handle SmartThings authorization if needed.
+            return SamsungConfig(
                 identifier=identifier,
                 name=name,
                 token=tv.token,  # type: ignore
@@ -358,8 +384,6 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
                 ),  # Both wired and wireless use the same key
                 reports_power_state=reports_power_state,
             )
-
-            return self._apply_smartthings_to_config(config)
 
         except Exception as err:  # pylint: disable=broad-except
             _LOG.error("Setup error for Samsung TV at %s: %s", ip, err)
