@@ -11,7 +11,7 @@ import logging
 import socket
 from typing import Any
 
-import requests
+import aiohttp
 from ucapi_framework import DiscoveredDevice
 from ucapi_framework.discovery import SDDPDiscovery
 
@@ -25,26 +25,25 @@ class SamsungTVDiscovery(SDDPDiscovery):
         """
         Perform Samsung TV discovery using both SDDP and direct API probing.
 
+        Runs both methods concurrently and merges the results, deduplicating by
+        IP address. This catches TVs in mixed environments where multicast may
+        be blocked or a TV doesn't respond to SDDP.
+
         :return: List of discovered devices
         """
         _LOG.info("Starting Samsung TV discovery")
+        sddp_devices, direct_devices = await asyncio.gather(
+            super().discover(),
+            self._direct_api_discovery(),
+        )
 
-        # Run the existing SDDP discovery path
-        sddp_devices = await super().discover()
-
-        # Run direct API probing against the primary LAN subnet
-        direct_devices = await self._direct_api_discovery()
-
-        # Merge and deduplicate, preferring direct API results where both exist
         devices = self._merge_devices(sddp_devices, direct_devices)
-
         _LOG.info(
-            "Samsung TV discovery complete: %s SDDP + %s direct API -> %s unique TVs",
+            "Samsung TV discovery complete: %d SDDP + %d direct API = %d unique TV(s)",
             len(sddp_devices),
             len(direct_devices),
             len(devices),
         )
-
         self._discovered_devices = devices
         return devices
 
@@ -59,30 +58,18 @@ class SamsungTVDiscovery(SDDPDiscovery):
         :return: DiscoveredDevice or None if parsing fails
         """
         try:
-            _LOG.debug("Received SDDP response: datagram=%s", datagram)
-
-            # Extract IP address from the datagram
             ip_address = datagram.hdr_from[0]
-
-            # Extract device type (model/series information)
             device_type = (
                 datagram.hdr_type if hasattr(datagram, "hdr_type") else "Samsung TV"
             )
-
-            # Create identifier from IP address
-            # We'll use IP-based identifier initially; MAC address can be obtained during connection
             identifier = f"samsung_{ip_address.replace('.', '_')}"
-
-            # Use device type as the name
             device_name = device_type if device_type else "Samsung TV"
 
             _LOG.debug(
-                "Extracted Samsung discovery fields: ip=%s, name=%s, type=%s, identifier=%s, response_info=%s",
-                ip_address,
+                "Parsed Samsung TV: %s at %s (type: %s)",
                 device_name,
+                ip_address,
                 device_type,
-                identifier,
-                response_info,
             )
 
             return DiscoveredDevice(
@@ -98,96 +85,96 @@ class SamsungTVDiscovery(SDDPDiscovery):
             )
 
         except Exception as err:  # pylint: disable=broad-exception-caught
-            _LOG.error(
-                "Failed to parse SDDP device: datagram=%s, response_info=%s, error=%s",
-                datagram,
-                response_info,
-                err,
-            )
+            _LOG.error("Failed to parse SDDP device: %s", err)
             return None
 
     async def _direct_api_discovery(self) -> list[DiscoveredDevice]:
         """
         Probe the primary LAN subnet for Samsung TVs via http://IP:8001/api/v2/.
 
+        Only scans subnets with a prefix length >= 24 (i.e. /24 or smaller) to
+        avoid scanning thousands of hosts on large networks.
+
         :return: List of discovered devices
         """
-        subnets = self._get_local_subnets()
-        if not subnets:
-            _LOG.warning("No local subnet detected for direct Samsung TV probing")
+        subnet = self._get_local_subnet()
+        if subnet is None:
+            _LOG.warning("No suitable local subnet found for direct Samsung TV probing")
             return []
 
-        timeout = 1
+        ips = [str(ip) for ip in subnet.hosts()]
+        _LOG.info("Direct API scan: probing %d host(s) on %s", len(ips), subnet)
+
         max_concurrency = 64
         semaphore = asyncio.Semaphore(max_concurrency)
-        loop = asyncio.get_running_loop()
+        connect_timeout = aiohttp.ClientTimeout(connect=0.5, total=1.5)
 
-        ips: list[str] = []
-        for subnet in subnets:
-            try:
-                network = ipaddress.ip_network(subnet, strict=False)
-                ips.extend(str(ip) for ip in network.hosts())
-            except ValueError:
-                _LOG.debug("Skipping invalid subnet: %s", subnet)
-
-        if not ips:
-            return []
-
-        _LOG.info(
-            "Starting direct Samsung TV probing on %s subnet(s), %s host(s)",
-            len(subnets),
-            len(ips),
-        )
-
-        async def probe_one(ip: str) -> DiscoveredDevice | None:
+        async def probe_one(
+            session: aiohttp.ClientSession, ip: str
+        ) -> DiscoveredDevice | None:
             async with semaphore:
-                return await loop.run_in_executor(
-                    None, self._probe_samsung_tv, ip, timeout
-                )
+                return await self._probe_samsung_tv(session, ip, connect_timeout)
 
-        results = await asyncio.gather(*(probe_one(ip) for ip in ips))
-        devices = [device for device in results if device is not None]
+        async with aiohttp.ClientSession() as session:
+            results = await asyncio.gather(
+                *(probe_one(session, ip) for ip in ips), return_exceptions=False
+            )
 
-        _LOG.info("Direct API discovery found %s Samsung TV(s)", len(devices))
+        devices = [d for d in results if d is not None]
+        _LOG.info("Direct API scan complete: %d Samsung TV(s) found", len(devices))
         return devices
 
-    def _get_local_subnets(self) -> list[str]:
+    def _get_local_subnet(self) -> ipaddress.IPv4Network | None:
         """
-        Determine the primary LAN subnet for discovery.
+        Determine the primary LAN subnet by assuming a /24 prefix.
 
-        :return: List of subnet strings
+        :return: IPv4Network or None if the local IP cannot be determined
         """
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
                 sock.connect(("8.8.8.8", 80))
                 local_ip = sock.getsockname()[0]
-
-            subnet = ipaddress.ip_network(f"{local_ip}/24", strict=False)
-
-            _LOG.debug("Using primary LAN subnet for Samsung discovery: %s", subnet)
-
-            return [str(subnet)]
-
+            network = ipaddress.IPv4Network(f"{local_ip}/24", strict=False)
+            _LOG.debug("Using subnet %s for direct scan", network)
+            return network
         except OSError as err:
-            _LOG.warning("Failed to determine primary LAN subnet: %s", err)
-            return []
+            _LOG.warning("Failed to determine local subnet: %s", err)
+            return None
 
-    def _probe_samsung_tv(
-        self, ip: str, timeout: int = 1
+    async def _probe_samsung_tv(
+        self,
+        session: aiohttp.ClientSession,
+        ip: str,
+        timeout: aiohttp.ClientTimeout,
     ) -> DiscoveredDevice | None:
         """
-        Probe a single host via Samsung's direct API.
+        Probe a single host via Samsung's REST API.
 
+        First does a fast TCP connect check on port 8001 to avoid spending the
+        full HTTP timeout on hosts that have nothing listening.
+
+        :param session: Shared aiohttp session
         :param ip: IP address to probe
-        :param timeout: Request timeout in seconds
-        :return: DiscoveredDevice or None if not a Samsung TV
+        :param timeout: aiohttp timeout configuration
+        :return: DiscoveredDevice or None
         """
-        url = f"http://{ip}:8001/api/v2/"
-
+        # Fast pre-check: attempt TCP connect before issuing the HTTP request.
+        # This eliminates the connect portion of the timeout for closed ports.
         try:
-            response = requests.get(url, timeout=timeout)
-            response.raise_for_status()
-            payload = response.json()
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(ip, 8001), timeout=0.5
+            )
+            writer.close()
+            await writer.wait_closed()
+        except (OSError, asyncio.TimeoutError):
+            return None
+
+        url = f"http://{ip}:8001/api/v2/"
+        try:
+            async with session.get(url, timeout=timeout) as response:
+                if response.status != 200:
+                    return None
+                payload = await response.json(content_type=None)
 
             device = payload.get("device", {})
             tv_type = payload.get("type", "")
@@ -216,6 +203,7 @@ class SamsungTVDiscovery(SDDPDiscovery):
                 return None
 
             identifier = device.get("id") or f"samsung_{ip.replace('.', '_')}"
+            _LOG.debug("Direct API found Samsung TV: %s at %s", friendly_name, ip)
 
             return DiscoveredDevice(
                 identifier=identifier,
@@ -245,7 +233,7 @@ class SamsungTVDiscovery(SDDPDiscovery):
                 },
             )
 
-        except Exception:
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
             return None
 
     def _merge_devices(
@@ -254,7 +242,10 @@ class SamsungTVDiscovery(SDDPDiscovery):
         direct_devices: list[DiscoveredDevice],
     ) -> list[DiscoveredDevice]:
         """
-        Merge discovery results by IP, preferring direct API data where available.
+        Merge SDDP and direct API results, deduplicating by IP address.
+
+        Where the same IP is found by both methods, the direct API result is
+        preferred as it carries richer metadata.
 
         :param sddp_devices: Devices discovered via SDDP
         :param direct_devices: Devices discovered via direct API
@@ -264,14 +255,11 @@ class SamsungTVDiscovery(SDDPDiscovery):
 
         for device in sddp_devices + direct_devices:
             key = device.address or device.identifier
-
             if key not in merged:
                 merged[key] = device
                 continue
-
-            existing_method = merged[key].extra_data.get("discovery_method")
-            new_method = device.extra_data.get("discovery_method")
-
+            existing_method = (merged[key].extra_data or {}).get("discovery_method")
+            new_method = (device.extra_data or {}).get("discovery_method")
             if existing_method != "direct_api" and new_method == "direct_api":
                 merged[key] = device
 
