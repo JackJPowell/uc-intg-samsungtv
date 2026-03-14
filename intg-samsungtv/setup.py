@@ -208,7 +208,9 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
                 self._pending_device_config.smartthings_refresh_token = refresh_token  # type: ignore
                 self._pending_device_config.smartthings_token_expires = expires_at  # type: ignore
                 if self._assigned_worker_url:
-                    self._pending_device_config.smartthings_worker_url = self._assigned_worker_url  # type: ignore
+                    self._pending_device_config.smartthings_worker_url = (
+                        self._assigned_worker_url
+                    )  # type: ignore
 
                 _LOG.debug(
                     "Stored SmartThings OAuth tokens for device=%s using worker_url=%s expires_at=%s",
