@@ -18,6 +18,8 @@ from setup import SamsungSetupFlow
 from tv import SamsungTv
 from ucapi_framework import BaseConfigManager, BaseIntegrationDriver, get_config_path
 
+_LOG = logging.getLogger(__name__)
+
 
 async def main():
     """Start the Remote Two integration driver."""
@@ -30,6 +32,9 @@ async def main():
     logging.getLogger("discover").setLevel(level)
     logging.getLogger("setup").setLevel(level)
     logging.getLogger("select_entity").setLevel(level)
+    _LOG.setLevel(level)
+
+    _LOG.info("Starting Samsung TV integration driver with log level %s", level)
 
     driver = BaseIntegrationDriver(
         device_class=SamsungTv,
@@ -40,6 +45,8 @@ async def main():
         ],
     )
 
+    _LOG.debug("Created BaseIntegrationDriver for Samsung TV integration")
+
     driver.config_manager = BaseConfigManager(
         get_config_path(driver.api.config_dir_path),
         driver.on_device_added,
@@ -47,12 +54,26 @@ async def main():
         config_class=SamsungConfig,
     )
 
+    _LOG.debug(
+        "Configured BaseConfigManager using config path %s",
+        get_config_path(driver.api.config_dir_path),
+    )
+
     await driver.register_all_configured_devices()
+    _LOG.debug("Completed registration of all configured Samsung TV devices")
 
     discovery = SamsungTVDiscovery(timeout=2, search_pattern="Samsung")
+    _LOG.info(
+        "Created SamsungTVDiscovery with timeout=%s search_pattern=%s",
+        2,
+        "Samsung",
+    )
+
     setup_handler = SamsungSetupFlow.create_handler(driver, discovery)
+    _LOG.debug("Created Samsung setup handler with SamsungTVDiscovery")
 
     await driver.api.init("driver.json", setup_handler)
+    _LOG.info("Samsung TV driver API initialized; setup flow ready")
 
     await asyncio.Future()
 
