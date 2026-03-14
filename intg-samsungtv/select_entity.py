@@ -98,7 +98,9 @@ class SamsungAppSelect(SelectEntity):
                     cycle = params.get("cycle", False) if params else False
                     current_idx = options.index(current)
                     if current_idx < len(options) - 1:
-                        success = await self._device.select_option(options[current_idx + 1])
+                        success = await self._device.select_option(
+                            options[current_idx + 1]
+                        )
                         return StatusCodes.OK if success else StatusCodes.SERVER_ERROR
                     elif cycle:
                         success = await self._device.select_option(options[0])
@@ -112,7 +114,9 @@ class SamsungAppSelect(SelectEntity):
                     cycle = params.get("cycle", False) if params else False
                     current_idx = options.index(current)
                     if current_idx > 0:
-                        success = await self._device.select_option(options[current_idx - 1])
+                        success = await self._device.select_option(
+                            options[current_idx - 1]
+                        )
                         return StatusCodes.OK if success else StatusCodes.SERVER_ERROR
                     elif cycle:
                         success = await self._device.select_option(options[-1])
