@@ -110,7 +110,7 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         :param previous_input: Input values from the previous screen
         :return: RequestUserInput for SmartThings OAuth or None to skip
         """
-        # If SmartThings was already enabled in this flow, don't show this screen again
+        # If SmartThings was already enabled, don't show this screen again
         if self._smartthings_enabled:
             return None
 
@@ -144,6 +144,9 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
             str(previous_input.get("enable_smartthings", "false")).lower() == "true"
         )
         if enable_from_discovery:
+            _LOG.debug(
+                "SmartThings requested from discovery flow; going directly to OAuth screen"
+            )
             self._smartthings_enabled = True
             result = await self._get_oauth_auth_screen()
             if isinstance(result, RequestUserInput):
@@ -153,6 +156,7 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
                 "Failed to get OAuth screen from discovery path; showing checkbox fallback"
             )
 
+        _LOG.debug("Showing optional SmartThings setup screen")
         return RequestUserInput(
             {"en": "SmartThings Setup (Optional)"},
             [
@@ -188,6 +192,10 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         :return: Updated config, next screen, or None to complete
         """
         input_values = msg.input_values
+        _LOG.debug(
+            "handle_additional_configuration_response called with input_values=%s",
+            input_values,
+        )
 
         # Check if we're handling OAuth token submission (second pass of the SmartThings flow)
         if "tokens_json" in input_values:
@@ -242,17 +250,26 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         enable_smartthings_raw = input_values.get("enable_smartthings", "false")
         enable_smartthings = str(enable_smartthings_raw).lower() == "true"
 
+        _LOG.debug(
+            "SmartThings selection processed: raw=%s parsed=%s",
+            enable_smartthings_raw,
+            enable_smartthings,
+        )
+
         if enable_smartthings:
             # Mark SmartThings as enabled so we don't show the checkbox again
             self._smartthings_enabled = True
+            _LOG.debug("User enabled SmartThings; showing OAuth authorization screen")
             # Show OAuth authorization screen
             return await self._get_oauth_auth_screen()
 
         # User skipped SmartThings, complete setup
+        _LOG.debug("User skipped SmartThings; completing setup without OAuth")
         return None
 
     def get_additional_discovery_fields(self) -> list[dict]:
         """Add SmartThings OAuth prompt to the discovery selection screen."""
+        _LOG.debug("Providing additional discovery fields for SmartThings option")
         return [
             {
                 "id": "smartthings_info",
@@ -279,6 +296,13 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         self, discovered: Any, additional_input: dict[str, Any]
     ) -> dict[str, Any]:
         """Map a discovered Samsung TV to the input_values format expected by query_device."""
+        _LOG.debug(
+            "Preparing input from discovered device: name=%s, address=%s, identifier=%s, additional_input=%s",
+            getattr(discovered, "name", None),
+            getattr(discovered, "address", None),
+            getattr(discovered, "identifier", None),
+            additional_input,
+        )
         return {
             "address": discovered.address,
             "enable_smartthings": additional_input.get("enable_smartthings", False),
@@ -321,9 +345,12 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         # Get IP from manual entry ("address")
         ip = input_values.get("address")
 
+        _LOG.debug("query_device called with input_values=%s", input_values)
+
         try:
             reports_power_state = False
             if ip is None:
+                _LOG.debug("No IP address provided; returning manual entry form")
                 return self.get_manual_entry_form()
 
             _LOG.debug("Connecting to Samsung TV at %s", ip)
@@ -372,6 +399,11 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
                 "reports_power_state": reports_power_state,
             }
 
+            _LOG.debug(
+                "Stored Samsung device info for setup: %s",
+                self._device_info,
+            )
+
             # Create device config. The framework will call get_additional_configuration_screen
             # after this to handle SmartThings authorization if needed.
             return SamsungConfig(
@@ -386,12 +418,13 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
             )
 
         except Exception as err:  # pylint: disable=broad-except
-            _LOG.error("Setup error for Samsung TV at %s: %s", ip, err)
+            _LOG.error("Setup error for Samsung TV at %s: %s", ip, err, exc_info=True)
             return SetupError(IntegrationSetupError.OTHER)
 
     async def _get_oauth_auth_screen(self) -> RequestUserInput | SetupError:
         """Generate OAuth authorization screen using coordinator worker."""
         try:
+            _LOG.debug("Requesting SmartThings OAuth authorization URL")
             # Get authorization URL from coordinator worker.
             # The coordinator picks the least-full sub-worker and returns
             # its base URL so we can store it for all future token operations.

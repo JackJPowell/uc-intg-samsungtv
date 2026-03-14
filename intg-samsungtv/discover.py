@@ -23,6 +23,8 @@ class SamsungTVDiscovery(SDDPDiscovery):
         :return: DiscoveredDevice or None if parsing fails
         """
         try:
+            _LOG.debug("Received SDDP response: datagram=%s", datagram)
+
             # Extract IP address from the datagram
             ip_address = datagram.hdr_from[0]
 
@@ -39,10 +41,12 @@ class SamsungTVDiscovery(SDDPDiscovery):
             device_name = device_type if device_type else "Samsung TV"
 
             _LOG.debug(
-                "Parsed Samsung TV: %s at %s (type: %s)",
-                device_name,
+                "Extracted Samsung discovery fields: ip=%s, name=%s, type=%s, identifier=%s, response_info=%s",
                 ip_address,
+                device_name,
                 device_type,
+                identifier,
+                response_info,
             )
 
             return DiscoveredDevice(
@@ -56,5 +60,10 @@ class SamsungTVDiscovery(SDDPDiscovery):
             )
 
         except Exception as err:  # pylint: disable=broad-exception-caught
-            _LOG.error("Failed to parse SDDP device: %s", err)
+            _LOG.error(
+                "Failed to parse SDDP device: datagram=%s, response_info=%s, error=%s",
+                datagram,
+                response_info,
+                err,
+            )
             return None
