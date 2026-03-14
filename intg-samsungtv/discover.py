@@ -41,14 +41,15 @@ class SamsungTVDiscovery(SDDPDiscovery):
             device_name = device_type if device_type else "Samsung TV"
 
             _LOG.debug(
-                "Extracted Samsung discovery fields: ip=%s, type=%s, identifier=%s, response_info=%s",
+                "Extracted Samsung discovery fields: ip=%s, name=%s, type=%s, identifier=%s, response_info=%s",
                 ip_address,
+                device_name,
                 device_type,
                 identifier,
                 response_info,
             )
 
-            discovered_device = DiscoveredDevice(
+            return DiscoveredDevice(
                 identifier=identifier,
                 name=device_name,
                 address=ip_address,
@@ -58,17 +59,8 @@ class SamsungTVDiscovery(SDDPDiscovery):
                 },
             )
 
-            _LOG.debug(
-                "Returning discovered Samsung TV: name=%s, address=%s, identifier=%s",
-                discovered_device.name,
-                discovered_device.address,
-                discovered_device.identifier,
-            )
-
-            return discovered_device
-
         except Exception as err:  # pylint: disable=broad-exception-caught
-            _LOG.exception(
+            _LOG.error(
                 "Failed to parse SDDP device: datagram=%s, response_info=%s, error=%s",
                 datagram,
                 response_info,
