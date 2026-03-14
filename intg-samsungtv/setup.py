@@ -12,6 +12,7 @@ import ssl
 import time
 import json
 from typing import Any
+
 import aiohttp
 import certifi
 from const import (
@@ -38,6 +39,9 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         self._device_info: dict[str, Any] | None = None
         self._smartthings_enabled: bool = False
         self._assigned_worker_url: str | None = None
+        self._smartthings_access_token: str | None = None
+        self._smartthings_refresh_token: str | None = None
+        self._smartthings_token_expires: int | None = None
 
     def get_manual_entry_form(self) -> RequestUserInput:
         """
@@ -106,19 +110,33 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         :param previous_input: Input values from the previous screen
         :return: RequestUserInput for SmartThings OAuth or None to skip
         """
-        _LOG.debug(
-            "get_additional_configuration_screen called for device=%s with previous_input=%s smartthings_enabled=%s",
-            getattr(device_config, "identifier", None),
-            previous_input,
-            self._smartthings_enabled,
-        )
-
         # If SmartThings was already enabled, don't show this screen again
         if self._smartthings_enabled:
-            _LOG.debug(
-                "SmartThings already enabled; skipping additional configuration screen"
-            )
             return None
+
+        # If an existing configured TV already has SmartThings tokens, reuse them
+        # automatically — no need to re-authorize for every additional TV.
+        if self.config is not None:
+            existing = next(
+                (
+                    c
+                    for c in self.config.all()
+                    if c.smartthings_access_token and c.smartthings_refresh_token
+                ),
+                None,
+            )
+            if existing:
+                _LOG.info(
+                    "Reusing SmartThings tokens from existing device config '%s'",
+                    existing.name,
+                )
+                self._smartthings_access_token = existing.smartthings_access_token
+                self._smartthings_refresh_token = existing.smartthings_refresh_token
+                self._smartthings_token_expires = existing.smartthings_token_expires
+                self._assigned_worker_url = existing.smartthings_worker_url
+                self._smartthings_enabled = True
+                self._apply_smartthings_to_config(device_config)
+                return None
 
         # If SmartThings was already requested via the discovery checkbox, skip
         # straight to the OAuth screen without asking again.
@@ -203,21 +221,20 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
 
                 _LOG.info("Storing SmartThings OAuth tokens")
 
-                # Update pending config with OAuth tokens
+                # Cache SmartThings tokens for the current setup flow so they can
+                # be applied consistently to each SamsungConfig created during setup.
+                self._smartthings_access_token = access_token
+                self._smartthings_refresh_token = refresh_token
+                self._smartthings_token_expires = expires_at
+
+                # Persist SmartThings tokens on the current pending config as well.
                 self._pending_device_config.smartthings_access_token = access_token  # type: ignore
                 self._pending_device_config.smartthings_refresh_token = refresh_token  # type: ignore
                 self._pending_device_config.smartthings_token_expires = expires_at  # type: ignore
                 if self._assigned_worker_url:
                     self._pending_device_config.smartthings_worker_url = (
                         self._assigned_worker_url
-                    )  # type: ignore
-
-                _LOG.debug(
-                    "Stored SmartThings OAuth tokens for device=%s using worker_url=%s expires_at=%s",
-                    getattr(self._pending_device_config, "identifier", None),
-                    self._assigned_worker_url,
-                    expires_at,
-                )
+                    )  # type: ignore[union-attr]
 
                 return None  # Save and complete
 
@@ -291,6 +308,31 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
             "enable_smartthings": additional_input.get("enable_smartthings", False),
         }
 
+    def _apply_smartthings_to_config(self, config: SamsungConfig) -> SamsungConfig:
+        """
+        Apply SmartThings settings to a SamsungConfig when SmartThings is enabled.
+
+        This ensures SmartThings configuration is propagated to each device
+        config created during the setup flow, including manually added and
+        discovered TVs.
+        """
+        if not self._smartthings_enabled:
+            return config
+
+        if self._smartthings_access_token:
+            config.smartthings_access_token = self._smartthings_access_token
+
+        if self._smartthings_refresh_token:
+            config.smartthings_refresh_token = self._smartthings_refresh_token
+
+        if self._smartthings_token_expires:
+            config.smartthings_token_expires = self._smartthings_token_expires
+
+        if self._assigned_worker_url:
+            config.smartthings_worker_url = self._assigned_worker_url
+
+        return config
+
     async def query_device(
         self, input_values: dict[str, Any]
     ) -> RequestUserInput | SamsungConfig | SetupError:
@@ -362,16 +404,8 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
                 self._device_info,
             )
 
-            # Return config - framework will call get_additional_configuration_screen if defined
-            _LOG.debug(
-                "Returning SamsungConfig for device: name=%s, identifier=%s, address=%s, mac=%s, reports_power_state=%s",
-                name,
-                identifier,
-                ip,
-                info.get("device").get("wifiMac"),  # type: ignore[union-attr]
-                reports_power_state,
-            )
-
+            # Create device config. The framework will call get_additional_configuration_screen
+            # after this to handle SmartThings authorization if needed.
             return SamsungConfig(
                 identifier=identifier,
                 name=name,
