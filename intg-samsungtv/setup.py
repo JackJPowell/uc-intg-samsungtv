@@ -12,6 +12,7 @@ import ssl
 import time
 import json
 from typing import Any
+
 import aiohttp
 import certifi
 from const import (
@@ -38,6 +39,9 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         self._device_info: dict[str, Any] | None = None
         self._smartthings_enabled: bool = False
         self._assigned_worker_url: str | None = None
+        self._smartthings_access_token: str | None = None
+        self._smartthings_refresh_token: str | None = None
+        self._smartthings_token_expires: int | None = None
 
     def get_manual_entry_form(self) -> RequestUserInput:
         """
@@ -185,7 +189,13 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
 
                 _LOG.info("Storing SmartThings OAuth tokens")
 
-                # Update pending config with OAuth tokens
+                # Cache SmartThings tokens for the current setup flow so they can
+                # be applied consistently to each SamsungConfig created during setup.
+                self._smartthings_access_token = access_token
+                self._smartthings_refresh_token = refresh_token
+                self._smartthings_token_expires = expires_at
+
+                # Persist SmartThings tokens on the current pending config as well.
                 self._pending_device_config.smartthings_access_token = access_token  # type: ignore
                 self._pending_device_config.smartthings_refresh_token = refresh_token  # type: ignore
                 self._pending_device_config.smartthings_token_expires = expires_at  # type: ignore
@@ -247,6 +257,31 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
             "address": discovered.address,
             "enable_smartthings": additional_input.get("enable_smartthings", False),
         }
+
+    def _apply_smartthings_to_config(self, config: SamsungConfig) -> SamsungConfig:
+        """
+        Apply SmartThings settings to a SamsungConfig when SmartThings is enabled.
+
+        This ensures SmartThings configuration is propagated to each device
+        config created during the setup flow, including manually added and
+        discovered TVs.
+        """
+        if not self._smartthings_enabled:
+            return config
+
+        if self._smartthings_access_token:
+            config.smartthings_access_token = self._smartthings_access_token
+
+        if self._smartthings_refresh_token:
+            config.smartthings_refresh_token = self._smartthings_refresh_token
+
+        if self._smartthings_token_expires:
+            config.smartthings_token_expires = self._smartthings_token_expires
+
+        if self._assigned_worker_url:
+            config.smartthings_worker_url = self._assigned_worker_url
+
+        return config
 
     async def query_device(
         self, input_values: dict[str, Any]
@@ -311,8 +346,9 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
                 "reports_power_state": reports_power_state,
             }
 
-            # Return config - framework will call get_additional_configuration_screen if defined
-            return SamsungConfig(
+            # Create device config. The framework will call get_additional_configuration_screen
+            # after this if additional configuration steps are required.
+            config = SamsungConfig(
                 identifier=identifier,
                 name=name,
                 token=tv.token,  # type: ignore
@@ -322,6 +358,8 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
                 ),  # Both wired and wireless use the same key
                 reports_power_state=reports_power_state,
             )
+
+            return self._apply_smartthings_to_config(config)
 
         except Exception as err:  # pylint: disable=broad-except
             _LOG.error("Setup error for Samsung TV at %s: %s", ip, err)
