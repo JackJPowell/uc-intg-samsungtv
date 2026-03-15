@@ -54,6 +54,7 @@ class SamsungTv(ExternalClientDevice):
         )
         self._mac_address: str = device_config.mac_address or ""
         self._app_list: dict[str, str] = {}
+        self._smartthings_input_source_map: dict[str, str] = {}
         self._end_of_power_off: datetime | None = None
         self._end_of_power_on: datetime | None = None
         self._active_source: str = ""
@@ -119,19 +120,40 @@ class SamsungTv(ExternalClientDevice):
     @property
     def source_list(self) -> list[str]:
         """Return a list of available input sources."""
-        # Always include standard inputs even if app list is empty
-        sources = [
-            "TV",
-            "HDMI",
-            "HDMI1",
-            "HDMI2",
-            "HDMI3",
-            "HDMI4",
-        ]
+        sources = ["TV"]
+
+        # If SmartThings provides friendly input names, use those instead of generic HDMI entries.
+        if self._smartthings_input_source_map:
+
+            def _source_sort_key(name: str):
+                if name.startswith("HDMI"):
+                    try:
+                        # Extract the HDMI port number
+                        port = int(name.split()[0].replace("HDMI", ""))
+                        return (0, port, name)
+                    except ValueError:
+                        return (0, 99, name)
+
+                return (1, name)
+
+            smartthings_sources = sorted(
+                (
+                    name
+                    for name in self._smartthings_input_source_map.keys()
+                    if name != "TV"
+                ),
+                key=_source_sort_key,
+            )
+
+            sources.extend(smartthings_sources)
+        else:
+            sources.extend(["HDMI", "HDMI1", "HDMI2", "HDMI3", "HDMI4"])
         # Add installed apps if available
         if self._app_list:
             sources.extend(sorted(self._app_list.keys()))
-        return sources
+
+        # Ensure any duplicates are removed from the list
+        return list(dict.fromkeys(sources))
 
     @property
     def source(self) -> str:
@@ -557,13 +579,19 @@ class SamsungTv(ExternalClientDevice):
                     smartthings_sources = await self._get_smartthings_source_list()
                     if smartthings_sources:
                         _LOG.debug(
-                            "[%s] Adding %d sources from SmartThings to app list",
+                            "[%s] Adding %d SmartThings input sources",
                             self.log_id,
                             len(smartthings_sources),
                         )
-                        # Merge SmartThings sources into _app_list so they persist
-                        # and are included in the source_list property
-                        self._app_list.update(smartthings_sources)
+                        _LOG.debug(
+                            "[%s] SmartThings input sources discovered: %s",
+                            self.log_id,
+                            list(smartthings_sources.keys()),
+                        )
+                        # Store SmartThings input sources separately from apps
+                        self._smartthings_input_source_map = (
+                            smartthings_sources.copy()
+                        )
 
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.exception("[%s] Error updating app list: %s", self.log_id, ex)
@@ -590,6 +618,90 @@ class SamsungTv(ExternalClientDevice):
             return {}
         return {}
 
+    async def select_source(self, source: str | None) -> None:
+        """Select an input source or launch an app from the source list.
+
+        This method handles all source selection coming from the media player
+        SELECT_SOURCE command. Sources may be:
+
+        • SmartThings inputs (e.g. "HDMI1 Sky", "TV")
+        • Standard HDMI inputs (HDMI1–HDMI4)
+        • Installed app names
+
+        SmartThings-friendly labels are first resolved back to their real
+        SmartThings source IDs before switching inputs.
+        """
+
+        if self.power_off_in_progress:
+            _LOG.debug(
+                "[%s] TV is powering off, not sending select_source command",
+                self.log_id,
+            )
+            return
+
+        if not source:
+            _LOG.error("[%s] No source provided to select_source", self.log_id)
+            return
+
+        # Resolve SmartThings-friendly labels such as "HDMI1 Sky" back to
+        # their real SmartThings source IDs such as "HDMI1".
+        resolved_source = self._smartthings_input_source_map.get(source, source)
+
+        if resolved_source in ("TV", "dtv"):
+            # Prefer SmartThings API when the source originated from SmartThings.
+            if resolved_source == "dtv" and self._smartthings_api:
+                _LOG.debug(
+                    "[%s] Using SmartThings API for TV input: %s",
+                    self.log_id,
+                    resolved_source,
+                )
+                success = await self.set_input_source_smartthings(resolved_source)
+                if success:
+                    return
+                _LOG.warning(
+                    "[%s] SmartThings failed for %s, falling back to KEY_TV",
+                    self.log_id,
+                    resolved_source,
+                )
+
+            # Fallback for TVs where SmartThings input switching is unavailable
+            await self.send_key("KEY_TV")
+            return
+
+        # ---- HDMI inputs ----
+        if resolved_source in ("HDMI", "HDMI1", "HDMI2", "HDMI3", "HDMI4"):
+            if self._smartthings_api:
+                _LOG.debug(
+                    "[%s] Using SmartThings API for HDMI input: %s",
+                    self.log_id,
+                    resolved_source,
+                )
+                success = await self.set_input_source_smartthings(resolved_source)
+                if success:
+                    return
+                _LOG.warning(
+                    "[%s] SmartThings failed for %s, falling back to KEY command",
+                    self.log_id,
+                    resolved_source,
+                )
+            # Local fallback using Samsung key commands.
+            if resolved_source == "HDMI":
+                await self.send_key("KEY_HDMI")
+            elif resolved_source == "HDMI1":
+                await self.send_key("KEY_HDMI1")
+            elif resolved_source == "HDMI2":
+                await self.send_key("KEY_HDMI2")
+            elif resolved_source == "HDMI3":
+                await self.send_key("KEY_HDMI3")
+            elif resolved_source == "HDMI4":
+                await self.send_key("KEY_HDMI4")
+            return
+
+        # ---- App launch ----
+        # If the selected "source" is actually an installed app,
+        # delegate to launch_app().
+        await self.launch_app(app_name=resolved_source)
+
     async def launch_app(
         self, app_id: str | None = None, app_name: str | None = None
     ) -> None:
@@ -600,48 +712,14 @@ class SamsungTv(ExternalClientDevice):
             )
             return
         if app_name:
-            if app_name == "TV":
-                await self.send_key("KEY_TV")
+            app_id = self._app_list.get(app_name)
+            if app_id is None:
+                _LOG.warning(
+                    "[%s] Cannot launch app '%s': not found in installed app list",
+                    self.log_id,
+                    app_name,
+                )
                 return
-            elif app_name in ["HDMI", "HDMI1", "HDMI2", "HDMI3", "HDMI4"]:
-                # Try SmartThings API first for HDMI inputs (local API doesn't support this)
-                if self._smartthings_api:
-                    _LOG.debug(
-                        "[%s] Using SmartThings API for HDMI input: %s",
-                        self.log_id,
-                        app_name,
-                    )
-                    success = await self.set_input_source_smartthings(app_name)
-                    if success:
-                        return
-                    _LOG.warning(
-                        "[%s] SmartThings failed for %s, falling back to KEY command",
-                        self.log_id,
-                        app_name,
-                    )
-
-                # Fallback to local KEY commands (may not work on all models)
-                if app_name == "HDMI":
-                    await self.send_key("KEY_HDMI")
-                elif app_name == "HDMI1":
-                    await self.send_key("KEY_HDMI1")
-                elif app_name == "HDMI2":
-                    await self.send_key("KEY_HDMI2")
-                elif app_name == "HDMI3":
-                    await self.send_key("KEY_HDMI3")
-                elif app_name == "HDMI4":
-                    await self.send_key("KEY_HDMI4")
-                return
-            else:
-                # Get app_id from app list, with error handling
-                app_id = self._app_list.get(app_name)
-                if app_id is None:
-                    _LOG.warning(
-                        "[%s] App '%s' not found in app list, cannot launch",
-                        self.log_id,
-                        app_name,
-                    )
-                    return
 
         if app_id is None:
             _LOG.error("[%s] No app_id provided to launch_app", self.log_id)
@@ -1577,13 +1655,34 @@ class SamsungTv(ExternalClientDevice):
 
                                     if source_id and source_id not in seen_source_ids:
                                         seen_source_ids.add(source_id)
-                                        # Use the friendly name if available, otherwise use ID
-                                        display_name = (
-                                            source_name
-                                            if source_name
-                                            and not source_name.startswith("Unknown")
-                                            else source_id
-                                        )
+
+                                        # Format SmartThings inputs for display in the source dropdown.
+                                        # Keep TV as "TV", but show HDMI inputs as
+                                        # "HDMIx Friendly Name".
+                                        if source_id == "dtv":
+                                            display_name = "TV"
+                                        elif source_id.startswith("HDMI"):
+                                            friendly_name = (
+                                                source_name
+                                                if source_name
+                                                and not source_name.startswith("Unknown")
+                                                else ""
+                                            )
+
+                                            if friendly_name:
+                                                display_name = (
+                                                    f"{source_id} {friendly_name}"
+                                                )
+                                            else:
+                                                display_name = source_id
+                                        else:
+                                            display_name = (
+                                                source_name
+                                                if source_name
+                                                and not source_name.startswith("Unknown")
+                                                else source_id
+                                            )
+
                                         all_sources[display_name] = source_id
                                 _LOG.debug(
                                     "[%s] SmartThings found %d input sources from map",
@@ -1597,18 +1696,18 @@ class SamsungTv(ExternalClientDevice):
                                 ex,
                             )
 
-                    # Update app list with all unique sources
+                    # Update SmartThings input source map with all unique sources
                     if all_sources:
-                        self._app_list.update(all_sources)
+                        self._smartthings_input_source_map = all_sources.copy()
                         _LOG.debug(
-                            "[%s] SmartThings added %d unique sources to app_list (total: %d)",
+                            "[%s] SmartThings added %d unique input sources to source map (total: %d)",
                             self.log_id,
                             len(all_sources),
-                            len(self._app_list),
+                            len(self._smartthings_input_source_map),
                         )
 
-                    # If we updated app_list, include refreshed SOURCE_LIST in update
-                    if self._app_list:
+                    # If we updated SmartThings input sources, include refreshed SOURCE_LIST in update
+                    if self._smartthings_input_source_map:
                         update[MediaAttr.SOURCE_LIST] = self.source_list
                         _LOG.debug(
                             "[%s] SmartThings updated source list (%d total sources)",

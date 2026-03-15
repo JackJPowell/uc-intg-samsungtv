@@ -204,7 +204,8 @@ class SamsungMediaPlayer(MediaPlayerEntity):
                 case media_player.Commands.PLAY_PAUSE:
                     await self._device.send_key("KEY_PLAY_BACK")
                 case media_player.Commands.SELECT_SOURCE:
-                    await self._device.launch_app(app_name=(params or {}).get("source"))
+                    source = (params or {}).get("source")
+                    await self._device.select_source(source)
                 case media_player.Commands.SETTINGS:
                     await self._device.send_key("KEY_TOOLS")
                 case media_player.Commands.FUNCTION_RED:
