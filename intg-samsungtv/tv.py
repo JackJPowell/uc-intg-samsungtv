@@ -9,6 +9,7 @@ import json
 import logging
 import ssl
 import time
+import re
 from asyncio import AbstractEventLoop
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -126,13 +127,9 @@ class SamsungTv(ExternalClientDevice):
         if self._smartthings_input_source_map:
 
             def _source_sort_key(name: str):
-                if name.startswith("HDMI"):
-                    try:
-                        # Extract the HDMI port number
-                        port = int(name.split()[0].replace("HDMI", ""))
-                        return (0, port, name)
-                    except ValueError:
-                        return (0, 99, name)
+                match = re.match(r"HDMI\s*(\d+)", name)
+                if match:
+                    return (0, int(match.group(1)), name)
 
                 return (1, name)
 
