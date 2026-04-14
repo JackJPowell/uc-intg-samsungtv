@@ -101,6 +101,11 @@ class SamsungMediaPlayer(MediaPlayerEntity):
                 Attributes.MEDIA_TITLE: self._device.media_title,
             }
         )
+        _LOG.debug(
+            "Syncing source list for %s: %s",
+            self.id,
+            self._device.source_list,
+        )    
 
     # pylint: disable=too-many-statements
     async def media_player_cmd_handler(
@@ -205,7 +210,12 @@ class SamsungMediaPlayer(MediaPlayerEntity):
                     await self._device.send_key("KEY_PLAY_BACK")
                 case media_player.Commands.SELECT_SOURCE:
                     source = (params or {}).get("source")
-                    await self._device.select_source(source)
+                    if not source:
+                        _LOG.warning("SELECT_SOURCE called without source parameter")
+                        return ucapi.StatusCodes.BAD_REQUEST
+                    if not await self._device.select_option(source):
+                        _LOG.warning("Failed to select source: %s", source)
+                        return ucapi.StatusCodes.BAD_REQUEST
                 case media_player.Commands.SETTINGS:
                     await self._device.send_key("KEY_TOOLS")
                 case media_player.Commands.FUNCTION_RED:
