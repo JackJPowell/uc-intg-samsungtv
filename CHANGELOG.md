@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## v1.4.0 - 2026-05-17
+
+### Added
+
+- **Source List Improvements** When smartthings is enabled, your HDMI sources will pull in labels from the connected devices to help you identify which device is connected to which input source.
+
 ---
 
 ## v1.3.0 - 2026-03-11
