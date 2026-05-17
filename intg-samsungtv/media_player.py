@@ -108,7 +108,7 @@ class SamsungMediaPlayer(MediaPlayerEntity):
         entity: MediaPlayerEntity,
         cmd_id: str,
         params: dict[str, Any] | None,
-        websocket,
+        _websocket,
     ) -> StatusCodes:
         """
         Media-player entity command handler.
@@ -204,7 +204,13 @@ class SamsungMediaPlayer(MediaPlayerEntity):
                 case media_player.Commands.PLAY_PAUSE:
                     await self._device.send_key("KEY_PLAY_BACK")
                 case media_player.Commands.SELECT_SOURCE:
-                    await self._device.launch_app(app_name=(params or {}).get("source"))
+                    source = (params or {}).get("source")
+                    if not source:
+                        _LOG.warning("SELECT_SOURCE called without source parameter")
+                        return ucapi.StatusCodes.BAD_REQUEST
+                    if not await self._device.select_option(source):
+                        _LOG.warning("Failed to select source: %s", source)
+                        return ucapi.StatusCodes.BAD_REQUEST
                 case media_player.Commands.SETTINGS:
                     await self._device.send_key("KEY_TOOLS")
                 case media_player.Commands.FUNCTION_RED:
