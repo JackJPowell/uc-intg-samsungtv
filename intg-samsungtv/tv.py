@@ -1750,10 +1750,11 @@ class SamsungTv(ExternalClientDevice):
 
     async def set_input_source_smartthings(self, source: str) -> bool:
         """
-        Set input source using SmartThings Cloud API.
+        Set input source using SmartThings Cloud API with KEY command fallback.
 
-        This is a workaround for the limitation in the local WebSocket API
-        which doesn't support setting input sources on Samsung TVs.
+        Tries the standard 'mediaInputSource' capability first, then the
+        Samsung-specific 'samsungvd.mediaInputSource' capability. If both
+        fail (e.g. 409 Conflict), falls back to local KEY commands.
 
         Note: TV must be powered on and network-connected for SmartThings
         to reach it. Use WOL if needed before calling this.
@@ -1769,30 +1770,76 @@ class SamsungTv(ExternalClientDevice):
 
         device = await self._get_smartthings_device()
         if not device:
-            return False
-
-        try:
-            # Execute command to set input source
-            # SmartThings API uses: device.command(component, capability, command, args)
-            await device.command(
-                "main",  # component
-                "samsungvd.mediaInputSource",  # capability
-                "setInputSource",  # command
-                [source],  # args
+            _LOG.warning(
+                "[%s] SmartThings device unavailable, falling back to KEY command for '%s'",
+                self.log_id,
+                source,
             )
-            _LOG.debug("[%s] SmartThings: Set input source to %s", self.log_id, source)
-            self._active_source = self._input_source_labels.get(source, source)
+            return await self._set_input_source_key_fallback(source)
 
-            # Query status to confirm and get any other updates
-            await asyncio.sleep(0.5)
-            await self.query_smartthings_status_direct(emit=True)
+        # Try standard capability first, then Samsung-specific.
+        # 'mediaInputSource' is the SmartThings standard; 'samsungvd.mediaInputSource'
+        # is Samsung-specific and may return 409 on some models/firmware.
+        for capability in ("mediaInputSource", "samsungvd.mediaInputSource"):
+            try:
+                await device.command(
+                    "main",  # component
+                    capability,
+                    "setInputSource",  # command
+                    [source],  # args
+                )
+                _LOG.debug(
+                    "[%s] SmartThings: Set input source to %s via %s",
+                    self.log_id,
+                    source,
+                    capability,
+                )
+                self._active_source = self._input_source_labels.get(source, source)
 
-            return True
-        except Exception as ex:  # pylint: disable=broad-exception-caught
-            _LOG.error(
-                "[%s] Error setting input source via SmartThings: %s", self.log_id, ex
+                # Query status to confirm and get any other updates
+                await asyncio.sleep(0.5)
+                await self.query_smartthings_status_direct(emit=True)
+
+                return True
+            except Exception as ex:  # pylint: disable=broad-exception-caught
+                _LOG.warning(
+                    "[%s] SmartThings capability '%s' failed for source '%s': %s",
+                    self.log_id,
+                    capability,
+                    source,
+                    ex,
+                )
+
+        # Both SmartThings capabilities failed — fall back to KEY commands
+        _LOG.warning(
+            "[%s] All SmartThings attempts failed for '%s', falling back to KEY command",
+            self.log_id,
+            source,
+        )
+        return await self._set_input_source_key_fallback(source)
+
+    async def _set_input_source_key_fallback(self, source: str) -> bool:
+        """Send a local KEY command to switch input source."""
+        key_map = {
+            "dtv": "KEY_TV",
+            "tv": "KEY_TV",
+            "hdmi": "KEY_HDMI",
+            "hdmi1": "KEY_HDMI1",
+            "hdmi2": "KEY_HDMI2",
+            "hdmi3": "KEY_HDMI3",
+            "hdmi4": "KEY_HDMI4",
+        }
+        key = key_map.get(source.lower())
+        if not key:
+            _LOG.warning(
+                "[%s] No KEY fallback available for source '%s'", self.log_id, source
             )
             return False
+        _LOG.debug("[%s] KEY fallback: sending %s for source '%s'", self.log_id, key, source)
+        await self.send_key(key)
+        self._active_source = self._input_source_labels.get(source, source)
+        self.push_update()
+        return True
 
     async def power_on_smartthings(self) -> bool:
         """
