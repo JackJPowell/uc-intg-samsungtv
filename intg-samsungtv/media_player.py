@@ -108,7 +108,7 @@ class SamsungMediaPlayer(MediaPlayerEntity):
         entity: MediaPlayerEntity,
         cmd_id: str,
         params: dict[str, Any] | None,
-        _websocket,
+        websocket,
     ) -> StatusCodes:
         """
         Media-player entity command handler.
