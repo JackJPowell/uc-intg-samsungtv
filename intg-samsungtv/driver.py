@@ -41,11 +41,7 @@ async def main():
         entity_classes=[
             SamsungMediaPlayer,
             SamsungRemote,
-            lambda config_device, device: (
-                [SamsungAppSelect(config_device, device)]
-                if device.app_list
-                else []
-            ),
+            SamsungAppSelect,
         ],
     )
 

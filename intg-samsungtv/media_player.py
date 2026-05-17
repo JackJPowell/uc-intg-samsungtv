@@ -101,11 +101,6 @@ class SamsungMediaPlayer(MediaPlayerEntity):
                 Attributes.MEDIA_TITLE: self._device.media_title,
             }
         )
-        _LOG.debug(
-            "Syncing source list for %s: %s",
-            self.id,
-            self._device.source_list,
-        )    
 
     # pylint: disable=too-many-statements
     async def media_player_cmd_handler(
@@ -113,7 +108,7 @@ class SamsungMediaPlayer(MediaPlayerEntity):
         entity: MediaPlayerEntity,
         cmd_id: str,
         params: dict[str, Any] | None,
-        websocket,
+        _websocket,
     ) -> StatusCodes:
         """
         Media-player entity command handler.
