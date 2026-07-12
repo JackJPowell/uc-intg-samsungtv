@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## v1.4.1 - 2026-07-12
+
+### Fixed
+
+- Only advertise absolute volume control when SmartThings is configured.
+
+---
+
 ## v1.4.0 - 2026-05-17
 
 ### Added
