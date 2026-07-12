@@ -68,10 +68,14 @@ class SamsungMediaPlayer(MediaPlayerEntity):
                 ]
             )
 
+        entity_features = features.copy()
+        if not self.config.smartthings_access_token:
+            entity_features.remove(media_player.Features.VOLUME)
+
         super().__init__(
             entity_id,
             config_device.name,
-            features,
+            entity_features,
             attributes={
                 Attributes.STATE: media_player.States.UNKNOWN,
                 Attributes.SOURCE: "",
