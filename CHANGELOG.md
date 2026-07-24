@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## Unreleased
+## v1.5.0 - 2026-07-24
+
+### Added
+
+- **SmartThings connection sensor.** A new sensor reports whether SmartThings is configured, connected, unable to find the registered TV, or disconnected. Its status is verified during connection and refreshed after a remote reconnect without polling.
 
 ## v1.4.1 - 2026-07-12
 
