@@ -14,6 +14,7 @@ from discover import SamsungTVDiscovery
 from media_player import SamsungMediaPlayer
 from remote import SamsungRemote
 from select_entity import SamsungAppSelect
+from sensor import SmartThingsConnectionSensor
 from setup import SamsungSetupFlow
 from tv import SamsungTv
 from ucapi_framework import BaseConfigManager, BaseIntegrationDriver, get_config_path
@@ -42,6 +43,7 @@ async def main():
             SamsungMediaPlayer,
             SamsungRemote,
             SamsungAppSelect,
+            SmartThingsConnectionSensor,
         ],
     )
 

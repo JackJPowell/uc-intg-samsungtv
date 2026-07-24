@@ -71,6 +71,11 @@ class SamsungTv(ExternalClientDevice):
         # SmartThings Cloud API client (optional - for advanced features like input source)
         self._smartthings_api: SmartThings | None = None
         self._smartthings_device_id: str | None = None
+        self._smartthings_connection_status = (
+            "unknown"
+            if device_config.smartthings_access_token
+            else "not_configured"
+        )
         self._last_smartthings_poll: datetime | None = None
         self._smartthings_capabilities: set[str] = set()
 
@@ -171,6 +176,11 @@ class SamsungTv(ExternalClientDevice):
     def media_title(self) -> str | None:
         """Return the current media/channel title."""
         return self._media_title
+
+    @property
+    def smartthings_connection_status(self) -> str:
+        """Return SmartThings connection status verified during client setup."""
+        return self._smartthings_connection_status
 
     @property
     def app_list(self) -> dict[str, str]:
@@ -411,6 +421,11 @@ class SamsungTv(ExternalClientDevice):
         if self._device_config.smartthings_access_token and not self._smartthings_api:
             await self._init_smartthings_client()
 
+        # SmartThings initialization verifies both API access and that this TV
+        # is registered. Notify the status sensor without waiting for a poll.
+        # This also publishes the not_configured status after reconnecting.
+        self.push_update()
+
         await asyncio.sleep(1)
         await self._update_app_list()
 
@@ -430,6 +445,7 @@ class SamsungTv(ExternalClientDevice):
         """
         if not self._device_config.smartthings_access_token:
             # No SmartThings authentication configured
+            self._smartthings_connection_status = "not_configured"
             return
 
         # Aggressive token refresh strategy for battery-powered devices
@@ -463,12 +479,19 @@ class SamsungTv(ExternalClientDevice):
             _LOG.debug(
                 "[%s] SmartThings API client initialized", self.log_id
             )  # Discover the device in SmartThings
-            await self._discover_smartthings_device()
+            if await self._discover_smartthings_device():
+                self._smartthings_connection_status = "connected"
+            else:
+                # A successful API client is not sufficient: the configured TV
+                # must also be visible in the user's SmartThings device list.
+                self._smartthings_connection_status = "device_not_found"
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.warning(
                 "[%s] Failed to initialize SmartThings client: %s", self.log_id, ex
             )
             self._smartthings_api = None
+            self._smartthings_device_id = None
+            self._smartthings_connection_status = "disconnected"
 
     async def _refresh_smartthings_token(self) -> None:
         """
