@@ -9,6 +9,7 @@
 This integration is based on the great [samsungtvws](https://github.com/xchwarze/samsung-tv-ws-api) library and uses our
 [uc-integration-api](https://github.com/aitatoi/integration-python-library) to communicate with the Remote Two/3.
 
+> [!NOTE]
 > **SmartThings access:** Recent SmartThings pricing changes mean that supporting its cloud functionality costs $60 per year. The integration is designed so users do not need to pay for SmartThings access directly; that cost is covered on my end. If you find the SmartThings features --especially power management and input source selection useful-- optional donations [BuyMeACoffee](https://buymeacoffee.com/jackpowell), [Github Sponsor](https://github.com/sponsors/JackJPowell) help offset it.
 
 A [media player entity](https://github.com/unfoldedcircle/core-api/blob/main/doc/entities/entity_media_player.md)
