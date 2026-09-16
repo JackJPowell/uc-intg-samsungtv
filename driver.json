@@ -1,6 +1,6 @@
 {
   "driver_id": "samsungtv_driver",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "min_core_api": "0.20.0",
   "name": { "en": "Samsung TV" },
   "icon": "uc:display",
@@ -39,5 +39,5 @@
       }
     ]
   },
-  "release_date": "2026-07-24"
+  "release_date": "2026-09-16"
 }

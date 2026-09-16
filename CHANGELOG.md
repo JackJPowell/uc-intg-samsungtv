@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.5.1 - 2026-09-16
+
+### Fixed
+
+- Corrected mislabled function key in default remote layout.
+
 ## v1.5.0 - 2026-07-24
 
 ### Added
