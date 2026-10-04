@@ -6,5 +6,5 @@ aiohttp>=3.0.0,<4.0.0
 async-timeout>=5.0.1
 sddp-discovery-protocol==1.5.0
 ucapi-framework==1.9.7
-pysmartthings==3.7.3
+pysmartthings==1.2.0
 certifi>=2026.7.0
