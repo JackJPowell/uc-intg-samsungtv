@@ -2,7 +2,7 @@ pyee~=14.0.0
 ucapi==0.7.0
 samsungtvws==3.0.6
 wakeonlan==4.0.0
-aiohttp>=3.0.0,<4.0.0
+aiohttp>=3.14.3,<4.0.0
 async-timeout>=5.0.1
 sddp-discovery-protocol==1.5.0
 ucapi-framework==1.9.7
