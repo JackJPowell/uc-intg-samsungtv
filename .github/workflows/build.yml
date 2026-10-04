@@ -148,7 +148,7 @@ jobs:
           cat release_notes.md
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
 
       - name: Extract build archives from downloaded files
         run: |
