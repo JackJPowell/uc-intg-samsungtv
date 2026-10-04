@@ -7,4 +7,4 @@ async-timeout>=5.0.1
 sddp-discovery-protocol==1.5.0
 ucapi-framework==1.9.7
 pysmartthings==3.7.3
-certifi>=2026.7.0
+certifi>=2026.7.22
