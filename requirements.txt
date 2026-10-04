@@ -1,6 +1,6 @@
 pyee~=9.0.0
 ucapi==0.7.0
-samsungtvws==2.7.2
+samsungtvws==3.0.6
 wakeonlan==4.0.0
 aiohttp>=3.0.0,<4.0.0
 async-timeout>=5.0.1
