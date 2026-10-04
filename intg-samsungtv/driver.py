@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 This module implements a Remote Two integration driver for Samsung TV devices.
 

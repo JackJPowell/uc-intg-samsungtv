@@ -10,7 +10,7 @@ import logging
 import ssl
 import time
 from asyncio import AbstractEventLoop
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import aiohttp
@@ -72,9 +72,7 @@ class SamsungTv(ExternalClientDevice):
         self._smartthings_api: SmartThings | None = None
         self._smartthings_device_id: str | None = None
         self._smartthings_connection_status = (
-            "unknown"
-            if device_config.smartthings_access_token
-            else "not_configured"
+            "unknown" if device_config.smartthings_access_token else "not_configured"
         )
         self._last_smartthings_poll: datetime | None = None
         self._smartthings_capabilities: set[str] = set()
@@ -329,7 +327,7 @@ class SamsungTv(ExternalClientDevice):
         """Return if power off has been recently requested."""
         return (
             self._end_of_power_off is not None
-            and self._end_of_power_off > datetime.utcnow()
+            and self._end_of_power_off > datetime.now(UTC)
         )
 
     @property
@@ -337,7 +335,7 @@ class SamsungTv(ExternalClientDevice):
         """Return if power on has been recently requested."""
         return (
             self._end_of_power_on is not None
-            and self._end_of_power_on > datetime.utcnow()
+            and self._end_of_power_on > datetime.now(UTC)
         )
 
     @property
@@ -907,7 +905,7 @@ class SamsungTv(ExternalClientDevice):
             # Always start WOL sequence - it will detect when TV is on
             # (either from SmartThings or from WOL itself)
             _LOG.debug("[%s] Device is OFF, initiating Wake-on-LAN", self.log_id)
-            self._end_of_power_on = datetime.utcnow() + timedelta(seconds=17)
+            self._end_of_power_on = datetime.now(UTC) + timedelta(seconds=17)
             self._power_on_task = asyncio.create_task(self.power_on_wol())
             self._power_state = MediaStates.ON
 
@@ -931,7 +929,7 @@ class SamsungTv(ExternalClientDevice):
             # Frame TVs with art mode - power off enters art mode/standby
             # These typically transition to standby quickly (REST API will report "standby")
             _LOG.debug("[%s] Frame TV: will enter art mode/standby", self.log_id)
-            self._end_of_power_off = datetime.utcnow() + timedelta(seconds=5)
+            self._end_of_power_off = datetime.now(UTC) + timedelta(seconds=5)
             self._power_state = MediaStates.STANDBY
         else:
             # Regular TVs - power off fully, but network connection can take
@@ -940,7 +938,7 @@ class SamsungTv(ExternalClientDevice):
                 "[%s] Regular TV: entering power off (network may stay alive briefly)",
                 self.log_id,
             )
-            self._end_of_power_off = datetime.utcnow() + timedelta(seconds=65)
+            self._end_of_power_off = datetime.now(UTC) + timedelta(seconds=65)
             self._power_state = MediaStates.OFF
 
     async def power_on_wol(self) -> None:
@@ -1478,71 +1476,70 @@ class SamsungTv(ExternalClientDevice):
             ssl_context = ssl.create_default_context(cafile=certifi.where())
             connector = aiohttp.TCPConnector(ssl=ssl_context)
 
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.get(API_DEVICE_STATUS, headers=headers) as resp:
-                    if resp.status != 200:
-                        _LOG.warning(
-                            "[%s] SmartThings API debug query returned status %d",
-                            self.log_id,
-                            resp.status,
-                        )
-                        return
-
-                    data = await resp.json()
-
-                    _LOG.info(
-                        "[%s] ========== SmartThings Debug: All Attributes ==========",
+            async with (
+                aiohttp.ClientSession(connector=connector) as session,
+                session.get(API_DEVICE_STATUS, headers=headers) as resp,
+            ):
+                if resp.status != 200:
+                    _LOG.warning(
+                        "[%s] SmartThings API debug query returned status %d",
                         self.log_id,
+                        resp.status,
                     )
+                    return
 
-                    # Iterate through all components
-                    for component_name, component_data in data.items():
-                        _LOG.info("[%s] Component: %s", self.log_id, component_name)
+                data = await resp.json()
 
-                        if isinstance(component_data, dict):
-                            # Iterate through all attributes in this component
-                            for attr_name, attr_value in component_data.items():
+                _LOG.info(
+                    "[%s] ========== SmartThings Debug: All Attributes ==========",
+                    self.log_id,
+                )
+
+                # Iterate through all components
+                for component_name, component_data in data.items():
+                    _LOG.info("[%s] Component: %s", self.log_id, component_name)
+
+                    if isinstance(component_data, dict):
+                        # Iterate through all attributes in this component
+                        for attr_name, attr_value in component_data.items():
+                            _LOG.info(
+                                "[%s]   Attribute: %s", self.log_id, attr_name
+                            )
+                            _LOG.info(
+                                "[%s]     Raw Value: %s", self.log_id, attr_value
+                            )
+
+                            # If it's a dict with 'value', show the parsed value too
+                            if (
+                                isinstance(attr_value, dict)
+                                and "value" in attr_value
+                            ):
                                 _LOG.info(
-                                    "[%s]   Attribute: %s", self.log_id, attr_name
+                                    "[%s]     Extracted Value: %s",
+                                    self.log_id,
+                                    attr_value.get("value"),
                                 )
-                                _LOG.info(
-                                    "[%s]     Raw Value: %s", self.log_id, attr_value
-                                )
 
-                                # If it's a dict with 'value', show the parsed value too
-                                if (
-                                    isinstance(attr_value, dict)
-                                    and "value" in attr_value
-                                ):
-                                    _LOG.info(
-                                        "[%s]     Extracted Value: %s",
-                                        self.log_id,
-                                        attr_value.get("value"),
-                                    )
+                                # Try to parse JSON strings
+                                value_str = attr_value.get("value")
+                                if isinstance(value_str, str) and value_str.startswith(("[", "{")):
+                                    try:
+                                        parsed = json.loads(value_str)
+                                        _LOG.info(
+                                            "[%s]     Parsed JSON: %s",
+                                            self.log_id,
+                                            parsed,
+                                        )
+                                    except (json.JSONDecodeError, TypeError):
+                                        pass
 
-                                    # Try to parse JSON strings
-                                    value_str = attr_value.get("value")
-                                    if isinstance(value_str, str) and (
-                                        value_str.startswith("[")
-                                        or value_str.startswith("{")
-                                    ):
-                                        try:
-                                            parsed = json.loads(value_str)
-                                            _LOG.info(
-                                                "[%s]     Parsed JSON: %s",
-                                                self.log_id,
-                                                parsed,
-                                            )
-                                        except (json.JSONDecodeError, TypeError):
-                                            pass
+                            _LOG.info("[%s]   ---", self.log_id)
+                    else:
+                        _LOG.info("[%s]   Data: %s", self.log_id, component_data)
 
-                                _LOG.info("[%s]   ---", self.log_id)
-                        else:
-                            _LOG.info("[%s]   Data: %s", self.log_id, component_data)
-
-                    _LOG.info(
-                        "[%s] ========== End SmartThings Debug ==========", self.log_id
-                    )
+                _LOG.info(
+                    "[%s] ========== End SmartThings Debug ==========", self.log_id
+                )
 
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.error(
@@ -1591,177 +1588,179 @@ class SamsungTv(ExternalClientDevice):
             ssl_context = ssl.create_default_context(cafile=certifi.where())
             connector = aiohttp.TCPConnector(ssl=ssl_context)
 
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.get(API_DEVICE_STATUS, headers=headers) as resp:
-                    if resp.status != 200:
-                        _LOG.warning(
-                            "[%s] SmartThings API returned status %d",
-                            self.log_id,
-                            resp.status,
-                        )
-                        return update
-
-                    data = await resp.json()
-                    main_component = data.get("main", {})
-
-                    # Volume (already in percentage 0-100)
-                    if "volume" in main_component:
-                        volume_obj = main_component["volume"]
-                        volume = int(volume_obj.get("value", 0))
-                        self._volume = volume
-                        update[MediaAttr.VOLUME] = volume
-                        _LOG.debug("[%s] SmartThings volume: %d", self.log_id, volume)
-
-                    # Mute status
-                    if "mute" in main_component:
-                        mute_state = main_component["mute"].get("value")
-                        is_muted = mute_state == "muted"
-                        self._muted = is_muted
-                        update[MediaAttr.MUTED] = is_muted
-                        _LOG.debug("[%s] SmartThings muted: %s", self.log_id, is_muted)
-
-                    # TV channel - build media title from channel info
-                    tv_channel = None
-                    channel_name = None
-
-                    if "tvChannel" in main_component:
-                        tv_channel = (
-                            main_component["tvChannel"].get("value", "").strip()
-                        )
-
-                    if "tvChannelName" in main_component:
-                        channel_name = (
-                            main_component["tvChannelName"].get("value", "").strip()
-                        )
-
-                    # Build channel string for media title if watching TV
-                    if tv_channel or channel_name:
-                        channel_parts = []
-                        if tv_channel:
-                            channel_parts.append(tv_channel)
-                        if channel_name:
-                            channel_parts.append(channel_name)
-                        if channel_parts:
-                            self._media_title = " - ".join(channel_parts)
-                            update[MediaAttr.MEDIA_TITLE] = self._media_title
-                            _LOG.debug(
-                                "[%s] SmartThings channel: %s",
-                                self.log_id,
-                                self._media_title,
-                            )
-
-                    # Parse supported input sources / apps from SmartThings
-                    all_apps: dict[str, str] = {}
-
-                    if "supportedInputSources" in main_component:
-                        sources_str = main_component["supportedInputSources"].get(
-                            "value", "[]"
-                        )
-                        try:
-                            sources_list = (
-                                json.loads(sources_str)
-                                if isinstance(sources_str, str)
-                                else sources_str
-                            )
-                            if isinstance(sources_list, list):
-                                for source in sources_list:
-                                    if not source:
-                                        continue
-
-                                    source_name = str(source).strip()
-                                    if not source_name:
-                                        continue
-
-                                    # HDMI-style sources are handled via supportedInputSourcesMap
-                                    if (
-                                        source_name.upper().startswith("HDMI")
-                                        or source_name.upper() == "TV"
-                                    ):
-                                        continue
-
-                                    all_apps[source_name] = source_name
-                                _LOG.debug(
-                                    "[%s] SmartThings found %d app sources",
-                                    self.log_id,
-                                    len(all_apps),
-                                )
-                        except (json.JSONDecodeError, TypeError) as ex:
-                            _LOG.debug(
-                                "[%s] Could not parse supportedInputSources: %s",
-                                self.log_id,
-                                ex,
-                            )
-                    # Get HDMI inputs from supportedInputSourcesMap which contains
-                    # the friendly names configured on the TV (e.g. "HDMI2" -> "Sky Q").
-                    # These are used to build the SmartThings source mapping.
-                    if "supportedInputSourcesMap" in main_component:
-                        sources_map_str = main_component[
-                            "supportedInputSourcesMap"
-                        ].get("value", "[]")
-                        try:
-                            sources_map = (
-                                json.loads(sources_map_str)
-                                if isinstance(sources_map_str, str)
-                                else sources_map_str
-                            )
-                            if isinstance(sources_map, list):
-                                self._set_smartthings_input_mappings(sources_map)
-                                _LOG.debug(
-                                    "[%s] SmartThings found %d input sources from map",
-                                    self.log_id,
-                                    len(sources_map),
-                                )
-                        except (json.JSONDecodeError, TypeError) as ex:
-                            _LOG.debug(
-                                "[%s] Could not parse supportedInputSourcesMap: %s",
-                                self.log_id,
-                                ex,
-                            )
-
-                    # Update app list with non-input app sources only
-                    if all_apps:
-                        self._app_list.update(all_apps)
-                        _LOG.debug(
-                            "[%s] SmartThings added %d app sources to app_list (total: %d)",
-                            self.log_id,
-                            len(all_apps),
-                            len(self._app_list),
-                        )
-
-                    # Current input source
-                    if "inputSource" in main_component:
-                        current_source = main_component["inputSource"].get("value")
-                        if current_source:
-                            current_source = str(current_source)
-                            self._active_source = self._input_source_labels.get(
-                                current_source, current_source
-                            )
-                            update[MediaAttr.SOURCE] = self._active_source
-                            _LOG.debug(
-                                "[%s] SmartThings source: %s",
-                                self.log_id,
-                                self._active_source,
-                            )
-
-                    # If we updated sources, include refreshed SOURCE_LIST in update
-                    if self.source_list:
-                        update[MediaAttr.SOURCE_LIST] = self.source_list
-                        _LOG.debug(
-                            "[%s] SmartThings updated source list (%d total sources)",
-                            self.log_id,
-                            len(self.source_list),
-                        )
-                        _LOG.debug(
-                            "[%s] Remote should see SOURCE_LIST=%s",
-                            self.log_id,
-                            self.source_list,
-                        )
-
-                    # Notify entities if requested
-                    if emit and update:
-                        self.push_update()
-
+            async with (
+                aiohttp.ClientSession(connector=connector) as session,
+                session.get(API_DEVICE_STATUS, headers=headers) as resp,
+            ):
+                if resp.status != 200:
+                    _LOG.warning(
+                        "[%s] SmartThings API returned status %d",
+                        self.log_id,
+                        resp.status,
+                    )
                     return update
+
+                data = await resp.json()
+                main_component = data.get("main", {})
+
+                # Volume (already in percentage 0-100)
+                if "volume" in main_component:
+                    volume_obj = main_component["volume"]
+                    volume = int(volume_obj.get("value", 0))
+                    self._volume = volume
+                    update[MediaAttr.VOLUME] = volume
+                    _LOG.debug("[%s] SmartThings volume: %d", self.log_id, volume)
+
+                # Mute status
+                if "mute" in main_component:
+                    mute_state = main_component["mute"].get("value")
+                    is_muted = mute_state == "muted"
+                    self._muted = is_muted
+                    update[MediaAttr.MUTED] = is_muted
+                    _LOG.debug("[%s] SmartThings muted: %s", self.log_id, is_muted)
+
+                # TV channel - build media title from channel info
+                tv_channel = None
+                channel_name = None
+
+                if "tvChannel" in main_component:
+                    tv_channel = (
+                        main_component["tvChannel"].get("value", "").strip()
+                    )
+
+                if "tvChannelName" in main_component:
+                    channel_name = (
+                        main_component["tvChannelName"].get("value", "").strip()
+                    )
+
+                # Build channel string for media title if watching TV
+                if tv_channel or channel_name:
+                    channel_parts = []
+                    if tv_channel:
+                        channel_parts.append(tv_channel)
+                    if channel_name:
+                        channel_parts.append(channel_name)
+                    if channel_parts:
+                        self._media_title = " - ".join(channel_parts)
+                        update[MediaAttr.MEDIA_TITLE] = self._media_title
+                        _LOG.debug(
+                            "[%s] SmartThings channel: %s",
+                            self.log_id,
+                            self._media_title,
+                        )
+
+                # Parse supported input sources / apps from SmartThings
+                all_apps: dict[str, str] = {}
+
+                if "supportedInputSources" in main_component:
+                    sources_str = main_component["supportedInputSources"].get(
+                        "value", "[]"
+                    )
+                    try:
+                        sources_list = (
+                            json.loads(sources_str)
+                            if isinstance(sources_str, str)
+                            else sources_str
+                        )
+                        if isinstance(sources_list, list):
+                            for source in sources_list:
+                                if not source:
+                                    continue
+
+                                source_name = str(source).strip()
+                                if not source_name:
+                                    continue
+
+                                # HDMI-style sources are handled via supportedInputSourcesMap
+                                if (
+                                    source_name.upper().startswith("HDMI")
+                                    or source_name.upper() == "TV"
+                                ):
+                                    continue
+
+                                all_apps[source_name] = source_name
+                            _LOG.debug(
+                                "[%s] SmartThings found %d app sources",
+                                self.log_id,
+                                len(all_apps),
+                            )
+                    except (json.JSONDecodeError, TypeError) as ex:
+                        _LOG.debug(
+                            "[%s] Could not parse supportedInputSources: %s",
+                            self.log_id,
+                            ex,
+                        )
+                # Get HDMI inputs from supportedInputSourcesMap which contains
+                # the friendly names configured on the TV (e.g. "HDMI2" -> "Sky Q").
+                # These are used to build the SmartThings source mapping.
+                if "supportedInputSourcesMap" in main_component:
+                    sources_map_str = main_component[
+                        "supportedInputSourcesMap"
+                    ].get("value", "[]")
+                    try:
+                        sources_map = (
+                            json.loads(sources_map_str)
+                            if isinstance(sources_map_str, str)
+                            else sources_map_str
+                        )
+                        if isinstance(sources_map, list):
+                            self._set_smartthings_input_mappings(sources_map)
+                            _LOG.debug(
+                                "[%s] SmartThings found %d input sources from map",
+                                self.log_id,
+                                len(sources_map),
+                            )
+                    except (json.JSONDecodeError, TypeError) as ex:
+                        _LOG.debug(
+                            "[%s] Could not parse supportedInputSourcesMap: %s",
+                            self.log_id,
+                            ex,
+                        )
+
+                # Update app list with non-input app sources only
+                if all_apps:
+                    self._app_list.update(all_apps)
+                    _LOG.debug(
+                        "[%s] SmartThings added %d app sources to app_list (total: %d)",
+                        self.log_id,
+                        len(all_apps),
+                        len(self._app_list),
+                    )
+
+                # Current input source
+                if "inputSource" in main_component:
+                    current_source = main_component["inputSource"].get("value")
+                    if current_source:
+                        current_source = str(current_source)
+                        self._active_source = self._input_source_labels.get(
+                            current_source, current_source
+                        )
+                        update[MediaAttr.SOURCE] = self._active_source
+                        _LOG.debug(
+                            "[%s] SmartThings source: %s",
+                            self.log_id,
+                            self._active_source,
+                        )
+
+                # If we updated sources, include refreshed SOURCE_LIST in update
+                if self.source_list:
+                    update[MediaAttr.SOURCE_LIST] = self.source_list
+                    _LOG.debug(
+                        "[%s] SmartThings updated source list (%d total sources)",
+                        self.log_id,
+                        len(self.source_list),
+                    )
+                    _LOG.debug(
+                        "[%s] Remote should see SOURCE_LIST=%s",
+                        self.log_id,
+                        self.source_list,
+                    )
+
+                # Notify entities if requested
+                if emit and update:
+                    self.push_update()
+
+                return update
 
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.warning(
@@ -1858,7 +1857,9 @@ class SamsungTv(ExternalClientDevice):
                 "[%s] No KEY fallback available for source '%s'", self.log_id, source
             )
             return False
-        _LOG.debug("[%s] KEY fallback: sending %s for source '%s'", self.log_id, key, source)
+        _LOG.debug(
+            "[%s] KEY fallback: sending %s for source '%s'", self.log_id, key, source
+        )
         await self.send_key(key)
         self._active_source = self._input_source_labels.get(source, source)
         self.push_update()
@@ -2075,4 +2076,3 @@ class RestTV:
     def close(self) -> None:
         """Close the REST API connection."""
         self.tv.close()
-        return

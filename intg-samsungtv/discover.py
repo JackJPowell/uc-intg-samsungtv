@@ -166,7 +166,7 @@ class SamsungTVDiscovery(SDDPDiscovery):
             )
             writer.close()
             await writer.wait_closed()
-        except (OSError, asyncio.TimeoutError):
+        except (TimeoutError, OSError):
             return None
 
         url = f"http://{ip}:8001/api/v2/"
@@ -233,7 +233,7 @@ class SamsungTVDiscovery(SDDPDiscovery):
                 },
             )
 
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+        except (TimeoutError, aiohttp.ClientError, ValueError):
             return None
 
     def _merge_devices(

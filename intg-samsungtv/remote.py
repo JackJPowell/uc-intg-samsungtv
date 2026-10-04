@@ -12,11 +12,11 @@ import ucapi
 from const import SamsungConfig, SimpleCommands
 from tv import SamsungTv
 from ucapi import EntityTypes, StatusCodes, media_player
+from ucapi.media_player import States as MediaStates
 from ucapi.remote import Attributes, Commands, Features
 from ucapi.remote import States as RemoteStates
 from ucapi.ui import Buttons, DeviceButtonMapping
 from ucapi_framework import RemoteEntity, create_entity_id
-from ucapi.media_player import States as MediaStates
 
 _LOG = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ class SamsungRemote(RemoteEntity):
         if params:
             repeat = self.get_int_param("repeat", params, 1)
 
-        for _i in range(0, repeat):
+        for _i in range(repeat):
             await self.handle_command(cmd_id, params)
         return StatusCodes.OK
 
@@ -368,7 +368,7 @@ class SamsungRemote(RemoteEntity):
             elif cmd_id == Commands.SEND_CMD_SEQUENCE:
                 res = StatusCodes.OK
                 for command in params.get("sequence", []):
-                    for _ in range(0, repeat):
+                    for _ in range(repeat):
                         res = await self.handle_command(
                             Commands.SEND_CMD, {"command": command, "params": params}
                         )

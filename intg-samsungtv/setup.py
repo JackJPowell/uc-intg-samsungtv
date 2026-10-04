@@ -413,52 +413,54 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
             # its base URL so we can store it for all future token operations.
             ssl_context = ssl.create_default_context(cafile=certifi.where())
             connector = aiohttp.TCPConnector(ssl=ssl_context)
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.get(SMARTTHINGS_WORKER_AUTHORIZE) as response:
-                    if response.status != 200:
-                        _LOG.error(
-                            "Failed to get auth URL from worker: %d", response.status
-                        )
-                        return SetupError(IntegrationSetupError.OTHER)
-
-                    data = await response.json()
-                    auth_url = data.get("authorizationUrl")
-                    worker_url = data.get("workerUrl")
-
-                    if not auth_url:
-                        _LOG.error("No authorization URL in worker response")
-                        return SetupError(IntegrationSetupError.OTHER)
-
-                    # Store the assigned worker URL so handle_additional_configuration_response
-                    # can persist it onto the device config alongside the tokens.
-                    self._assigned_worker_url = worker_url
-                    _LOG.debug("Assigned SmartThings worker: %s", worker_url)
-
-                    return RequestUserInput(
-                        {"en": "SmartThings OAuth Authorization"},
-                        [
-                            {
-                                "id": "oauth_info",
-                                "label": {"en": "Enable SmartThings"},
-                                "field": {
-                                    "label": {
-                                        "value": {
-                                            "en": (
-                                                f"Click the [authorization link]({auth_url}) to authorize access to your SmartThings account.\n\n"
-                                                "After authorizing, you'll see a page with your tokens. "
-                                                "Click 'Copy All as JSON' and paste the entire JSON response below."
-                                            )
-                                        }
-                                    }
-                                },
-                            },
-                            {
-                                "field": {"textarea": {"value": ""}},
-                                "id": "tokens_json",
-                                "label": {"en": "Tokens (JSON)"},
-                            },
-                        ],
+            async with (
+                aiohttp.ClientSession(connector=connector) as session,
+                session.get(SMARTTHINGS_WORKER_AUTHORIZE) as response,
+            ):
+                if response.status != 200:
+                    _LOG.error(
+                        "Failed to get auth URL from worker: %d", response.status
                     )
+                    return SetupError(IntegrationSetupError.OTHER)
+
+                data = await response.json()
+                auth_url = data.get("authorizationUrl")
+                worker_url = data.get("workerUrl")
+
+                if not auth_url:
+                    _LOG.error("No authorization URL in worker response")
+                    return SetupError(IntegrationSetupError.OTHER)
+
+                # Store the assigned worker URL so handle_additional_configuration_response
+                # can persist it onto the device config alongside the tokens.
+                self._assigned_worker_url = worker_url
+                _LOG.debug("Assigned SmartThings worker: %s", worker_url)
+
+                return RequestUserInput(
+                    {"en": "SmartThings OAuth Authorization"},
+                    [
+                        {
+                            "id": "oauth_info",
+                            "label": {"en": "Enable SmartThings"},
+                            "field": {
+                                "label": {
+                                    "value": {
+                                        "en": (
+                                            f"Click the [authorization link]({auth_url}) to authorize access to your SmartThings account.\n\n"
+                                            "After authorizing, you'll see a page with your tokens. "
+                                            "Click 'Copy All as JSON' and paste the entire JSON response below."
+                                        )
+                                    }
+                                }
+                            },
+                        },
+                        {
+                            "field": {"textarea": {"value": ""}},
+                            "id": "tokens_json",
+                            "label": {"en": "Tokens (JSON)"},
+                        },
+                    ],
+                )
         except Exception as err:
             _LOG.error("Error getting OAuth authorization URL: %s", err, exc_info=True)
             return SetupError(IntegrationSetupError.OTHER)

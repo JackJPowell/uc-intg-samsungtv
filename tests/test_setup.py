@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from ucapi import DriverSetupRequest, RequestUserInput, SetupError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "intg-samsungtv"))
-from const import SamsungConfig  # noqa: E402
+from const import SamsungConfig
 
 spec = importlib.util.spec_from_file_location(
     "samsung_setup", Path(__file__).resolve().parents[1] / "intg-samsungtv/setup.py"
@@ -53,14 +53,18 @@ class SetupTests(unittest.IsolatedAsyncioTestCase):
         self.devices = [self.existing]
         self.config.all.side_effect = lambda: iter(self.devices)
         self.flow = setup.SamsungSetupFlow(self.config, driver=MagicMock())
-        self.flow._get_oauth_auth_screen = AsyncMock(return_value=RequestUserInput({"en": "OAuth"}, []))
+        self.flow._get_oauth_auth_screen = AsyncMock(
+            return_value=RequestUserInput({"en": "OAuth"}, [])
+        )
 
     async def test_unchecked_never_reuses_or_prompts(self):
         self.flow._validate_smartthings_tokens = AsyncMock()
         for value in (False, "false", None):
             target = tv("new")
             self.assertIsNone(
-                await self.flow.get_additional_configuration_screen(target, {"enable_smartthings": value})
+                await self.flow.get_additional_configuration_screen(
+                    target, {"enable_smartthings": value}
+                )
             )
             self.assertIsNone(target.smartthings_access_token)
         self.flow._validate_smartthings_tokens.assert_not_awaited()
@@ -71,7 +75,9 @@ class SetupTests(unittest.IsolatedAsyncioTestCase):
         for identifier in ("new", "tv"):
             target = tv(identifier)
             self.assertIsNone(
-                await self.flow.get_additional_configuration_screen(target, {"enable_smartthings": "true"})
+                await self.flow.get_additional_configuration_screen(
+                    target, {"enable_smartthings": "true"}
+                )
             )
             self.assertEqual(target.smartthings_access_token, "access")
             self.assertEqual(target.smartthings_worker_url, "https://assigned.example")
@@ -79,29 +85,39 @@ class SetupTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_checked_without_tokens_goes_directly_to_oauth(self):
         self.devices.clear()
-        result = await self.flow.get_additional_configuration_screen(tv(), {"enable_smartthings": True})
+        result = await self.flow.get_additional_configuration_screen(
+            tv(), {"enable_smartthings": True}
+        )
         self.assertIsInstance(result, RequestUserInput)
         self.flow._get_oauth_auth_screen.assert_awaited_once()
 
     async def test_invalid_tokens_go_to_oauth(self):
         self.flow._validate_smartthings_tokens = AsyncMock(return_value=False)
-        await self.flow.get_additional_configuration_screen(tv(), {"enable_smartthings": True})
+        await self.flow.get_additional_configuration_screen(
+            tv(), {"enable_smartthings": True}
+        )
         self.flow._get_oauth_auth_screen.assert_awaited_once()
 
     async def test_unverifiable_tokens_do_not_register_again(self):
         self.flow._validate_smartthings_tokens = AsyncMock(return_value=None)
-        result = await self.flow.get_additional_configuration_screen(tv(), {"enable_smartthings": True})
+        result = await self.flow.get_additional_configuration_screen(
+            tv(), {"enable_smartthings": True}
+        )
         self.assertIsInstance(result, SetupError)
         self.flow._get_oauth_auth_screen.assert_not_awaited()
 
     async def test_fresh_setup_clears_tokens(self):
         self.config.clear.side_effect = self.devices.clear
-        self.flow._build_restore_prompt_screen = AsyncMock(return_value=RequestUserInput({"en": "Restore"}, []))
+        self.flow._build_restore_prompt_screen = AsyncMock(
+            return_value=RequestUserInput({"en": "Restore"}, [])
+        )
         await self.flow.handle_driver_setup(DriverSetupRequest(False, {}))
         self.assertEqual(self.devices, [])
         self.flow._validate_smartthings_tokens = AsyncMock(return_value=True)
         target = tv()
-        await self.flow.get_additional_configuration_screen(target, {"enable_smartthings": True})
+        await self.flow.get_additional_configuration_screen(
+            target, {"enable_smartthings": True}
+        )
         self.assertIsNone(target.smartthings_access_token)
         self.flow._validate_smartthings_tokens.assert_not_awaited()
         self.flow._get_oauth_auth_screen.assert_awaited_once()
@@ -114,24 +130,34 @@ class SetupTests(unittest.IsolatedAsyncioTestCase):
         await self.flow.handle_driver_setup(DriverSetupRequest(True, {}))
         self.flow._validate_smartthings_tokens = AsyncMock(return_value=True)
         before_reset = tv("new")
-        await self.flow.get_additional_configuration_screen(before_reset, {"enable_smartthings": True})
+        await self.flow.get_additional_configuration_screen(
+            before_reset, {"enable_smartthings": True}
+        )
         self.assertEqual(before_reset.smartthings_access_token, "access")
-        await self.flow._handle_configuration_mode(SimpleNamespace(input_values={"action": "reset"}))
+        await self.flow._handle_configuration_mode(
+            SimpleNamespace(input_values={"action": "reset"})
+        )
         self.assertEqual(self.devices, [])
         self.flow._validate_smartthings_tokens.reset_mock()
         target = tv()
-        await self.flow.get_additional_configuration_screen(target, {"enable_smartthings": True})
+        await self.flow.get_additional_configuration_screen(
+            target, {"enable_smartthings": True}
+        )
         self.assertIsNone(target.smartthings_access_token)
         self.flow._validate_smartthings_tokens.assert_not_awaited()
         self.flow._get_oauth_auth_screen.assert_awaited_once()
 
     async def test_reconfigure_keeps_tokens_for_reuse(self):
-        self.flow._build_configuration_mode_screen = AsyncMock(return_value=RequestUserInput({"en": "Setup"}, []))
+        self.flow._build_configuration_mode_screen = AsyncMock(
+            return_value=RequestUserInput({"en": "Setup"}, [])
+        )
         await self.flow.handle_driver_setup(DriverSetupRequest(True, {}))
         self.config.clear.assert_not_called()
         self.flow._validate_smartthings_tokens = AsyncMock(return_value=True)
         target = tv()
-        await self.flow.get_additional_configuration_screen(target, {"enable_smartthings": True})
+        await self.flow.get_additional_configuration_screen(
+            target, {"enable_smartthings": True}
+        )
         self.assertEqual(target.smartthings_access_token, "access")
         self.flow._get_oauth_auth_screen.assert_not_awaited()
 
@@ -139,16 +165,29 @@ class SetupTests(unittest.IsolatedAsyncioTestCase):
         self.flow._validate_smartthings_tokens = AsyncMock(return_value=True)
         discovered = SimpleNamespace(address="192.0.2.1")
         for enabled in (False, "false", True, "true"):
-            values = await self.flow.prepare_input_from_discovery(discovered, {"enable_smartthings": enabled})
+            values = await self.flow.prepare_input_from_discovery(
+                discovered, {"enable_smartthings": enabled}
+            )
             target = tv("new")
-            self.assertIsNone(await self.flow.get_additional_configuration_screen(target, values))
-            self.assertEqual(target.smartthings_access_token, "access" if str(enabled).lower() == "true" else None)
+            self.assertIsNone(
+                await self.flow.get_additional_configuration_screen(target, values)
+            )
+            self.assertEqual(
+                target.smartthings_access_token,
+                "access" if str(enabled).lower() == "true" else None,
+            )
 
     async def test_another_valid_grant_is_tried_before_authorization(self):
-        self.devices.append(replace(self.existing, identifier="second", smartthings_access_token="valid"))
+        self.devices.append(
+            replace(
+                self.existing, identifier="second", smartthings_access_token="valid"
+            )
+        )
         self.flow._validate_smartthings_tokens = AsyncMock(side_effect=[False, True])
         target = tv("new")
-        await self.flow.get_additional_configuration_screen(target, {"enable_smartthings": True})
+        await self.flow.get_additional_configuration_screen(
+            target, {"enable_smartthings": True}
+        )
         self.assertEqual(target.smartthings_access_token, "valid")
         self.flow._get_oauth_auth_screen.assert_not_awaited()
 
@@ -171,11 +210,21 @@ class SetupTests(unittest.IsolatedAsyncioTestCase):
         session = MagicMock()
         session.get.return_value = response(401)
         session.post.return_value = response(
-            200, {"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600}
+            200,
+            {
+                "access_token": "new-access",
+                "refresh_token": "new-refresh",
+                "expires_in": 3600,
+            },
         )
-        with self.mock_session(session), patch.object(setup.time, "time", return_value=1000):
+        with (
+            self.mock_session(session),
+            patch.object(setup.time, "time", return_value=1000),
+        ):
             self.assertTrue(await self.flow._validate_smartthings_tokens(self.existing))
-        session.post.assert_called_once_with("https://assigned.example/refresh", json={"refresh_token": "refresh"})
+        session.post.assert_called_once_with(
+            "https://assigned.example/refresh", json={"refresh_token": "refresh"}
+        )
         for device in self.devices:
             self.assertEqual(device.smartthings_access_token, "new-access")
             self.assertEqual(device.smartthings_refresh_token, "new-refresh")
@@ -186,16 +235,21 @@ class SetupTests(unittest.IsolatedAsyncioTestCase):
         session = MagicMock()
         session.get.return_value = response(401)
         session.post.return_value = response(
-            400, {"error": "Token refresh failed", "details": '{"error":"invalid_grant"}'}
+            400,
+            {"error": "Token refresh failed", "details": '{"error":"invalid_grant"}'},
         )
         with self.mock_session(session):
-            self.assertFalse(await self.flow._validate_smartthings_tokens(self.existing))
+            self.assertFalse(
+                await self.flow._validate_smartthings_tokens(self.existing)
+            )
 
     async def test_api_failure_preserves_credentials(self):
         session = MagicMock()
         session.get.return_value = response(503)
         with self.mock_session(session):
-            self.assertIsNone(await self.flow._validate_smartthings_tokens(self.existing))
+            self.assertIsNone(
+                await self.flow._validate_smartthings_tokens(self.existing)
+            )
         session.post.assert_not_called()
         self.assertEqual(self.existing.smartthings_access_token, "access")
 
@@ -203,7 +257,9 @@ class SetupTests(unittest.IsolatedAsyncioTestCase):
         session = MagicMock()
         session.get.side_effect = TimeoutError
         with self.mock_session(session):
-            self.assertIsNone(await self.flow._validate_smartthings_tokens(self.existing))
+            self.assertIsNone(
+                await self.flow._validate_smartthings_tokens(self.existing)
+            )
 
     async def test_refresh_without_rotation_keeps_refresh_token(self):
         session = MagicMock()
@@ -217,16 +273,31 @@ class SetupTests(unittest.IsolatedAsyncioTestCase):
         self.flow._pending_device_config = tv()
         msg = SimpleNamespace(
             input_values={
-                "tokens_json": json.dumps({"access_token": "new", "refresh_token": "new-refresh", "expires_in": 100})
+                "tokens_json": json.dumps(
+                    {
+                        "access_token": "new",
+                        "refresh_token": "new-refresh",
+                        "expires_in": 100,
+                    }
+                )
             }
         )
         with patch.object(setup.time, "time", return_value=1000):
-            self.assertIsNone(await self.flow.handle_additional_configuration_response(msg))
-        self.assertEqual(self.flow._pending_device_config.smartthings_token_expires, 1100)
+            self.assertIsNone(
+                await self.flow.handle_additional_configuration_response(msg)
+            )
+        self.assertEqual(
+            self.flow._pending_device_config.smartthings_token_expires, 1100
+        )
 
     def test_first_screen_labels(self):
-        for fields in (self.flow.get_manual_entry_form().settings, self.flow.get_additional_discovery_fields()):
-            checkbox = next(field for field in fields if field["id"] == "enable_smartthings")
+        for fields in (
+            self.flow.get_manual_entry_form().settings,
+            self.flow.get_additional_discovery_fields(),
+        ):
+            checkbox = next(
+                field for field in fields if field["id"] == "enable_smartthings"
+            )
             self.assertEqual(checkbox["label"]["en"], "Enable SmartThings")
 
 
