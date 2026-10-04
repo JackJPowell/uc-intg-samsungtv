@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     "async-timeout>=5.0.1",
     "pyee>=9.0.0",
-    "samsungtvws==2.7.2",
+    "samsungtvws==3.0.6",
     "ucapi==0.7.0",
     "ucapi-framework==1.9.7",
     "wakeonlan>=3.1.0",
