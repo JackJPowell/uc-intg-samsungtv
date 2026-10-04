@@ -1,4 +1,4 @@
-pyee~=9.0.0
+pyee>=9.0,<13.1
 ucapi==0.7.0
 samsungtvws==3.0.6
 wakeonlan==4.0.0
