@@ -1502,18 +1502,11 @@ class SamsungTv(ExternalClientDevice):
                     if isinstance(component_data, dict):
                         # Iterate through all attributes in this component
                         for attr_name, attr_value in component_data.items():
-                            _LOG.info(
-                                "[%s]   Attribute: %s", self.log_id, attr_name
-                            )
-                            _LOG.info(
-                                "[%s]     Raw Value: %s", self.log_id, attr_value
-                            )
+                            _LOG.info("[%s]   Attribute: %s", self.log_id, attr_name)
+                            _LOG.info("[%s]     Raw Value: %s", self.log_id, attr_value)
 
                             # If it's a dict with 'value', show the parsed value too
-                            if (
-                                isinstance(attr_value, dict)
-                                and "value" in attr_value
-                            ):
+                            if isinstance(attr_value, dict) and "value" in attr_value:
                                 _LOG.info(
                                     "[%s]     Extracted Value: %s",
                                     self.log_id,
@@ -1522,7 +1515,9 @@ class SamsungTv(ExternalClientDevice):
 
                                 # Try to parse JSON strings
                                 value_str = attr_value.get("value")
-                                if isinstance(value_str, str) and value_str.startswith(("[", "{")):
+                                if isinstance(value_str, str) and value_str.startswith(
+                                    ("[", "{")
+                                ):
                                     try:
                                         parsed = json.loads(value_str)
                                         _LOG.info(
@@ -1624,9 +1619,7 @@ class SamsungTv(ExternalClientDevice):
                 channel_name = None
 
                 if "tvChannel" in main_component:
-                    tv_channel = (
-                        main_component["tvChannel"].get("value", "").strip()
-                    )
+                    tv_channel = main_component["tvChannel"].get("value", "").strip()
 
                 if "tvChannelName" in main_component:
                     channel_name = (
@@ -1694,9 +1687,9 @@ class SamsungTv(ExternalClientDevice):
                 # the friendly names configured on the TV (e.g. "HDMI2" -> "Sky Q").
                 # These are used to build the SmartThings source mapping.
                 if "supportedInputSourcesMap" in main_component:
-                    sources_map_str = main_component[
-                        "supportedInputSourcesMap"
-                    ].get("value", "[]")
+                    sources_map_str = main_component["supportedInputSourcesMap"].get(
+                        "value", "[]"
+                    )
                     try:
                         sources_map = (
                             json.loads(sources_map_str)
