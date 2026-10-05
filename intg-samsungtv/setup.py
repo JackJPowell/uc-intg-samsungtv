@@ -78,7 +78,7 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
                 {
                     "id": "smartthings_info",
                     "label": {
-                        "en": "SmartThings OAuth (Optional)",
+                        "en": "SmartThings",
                     },
                     "field": {
                         "label": {
@@ -281,13 +281,12 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         return [
             {
                 "id": "smartthings_info",
-                "label": {"en": "SmartThings OAuth (Optional)"},
+                "label": {"en": "SmartThings"},
                 "field": {
                     "label": {
                         "value": {
                             "en": (
-                                "Enable SmartThings for advanced features like input source control. "
-                                "Check the box below to reuse saved authorization or set up OAuth after selecting your TV."
+                                "Enable SmartThings for advanced features like input source control and power management. "
                             )
                         }
                     }
