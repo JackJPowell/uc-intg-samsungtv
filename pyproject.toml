@@ -10,8 +10,8 @@ dependencies = [
     "samsungtvws==3.0.6",
     "ucapi==0.7.0",
     "ucapi-framework==1.9.7",
-    "wakeonlan>=3.1.0",
-    "aiohttp>=3.0.0,<4.0.0",
+    "wakeonlan>=4.0.0",
+    "aiohttp>=3.14.3,<4.0.0",
     "sddp-discovery-protocol==1.5.0",
     "pysmartthings==0.7.8",
     "certifi>=2026.7.0"
