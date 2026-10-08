@@ -149,17 +149,10 @@ jobs:
 
       - name: Download build artifacts
         uses: actions/download-artifact@v8
-
-      - name: Extract build archives from downloaded files
-        run: |
-          ls -R
-          # extract tar.gz build archives from downloaded artifacts
-          # (wrapped in tar from actions/upload-artifact, then extracted into a directory by actions/download-artifact)
-          for D in * 
-            do if [ -d "${D}" ]; then
-              mv $D/* ./
-            fi
-          done;
+        with:
+          # A named artifact is extracted directly into the workspace.
+          # Exclude Docker build records and leave checkout directories untouched.
+          name: uc-intg-${{ needs.build.outputs.driver_id }}-${{ needs.build.outputs.version }}-aarch64
 
       - name: Create hash file
         run: |
