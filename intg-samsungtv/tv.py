@@ -68,7 +68,7 @@ class SamsungTv(ExternalClientDevice):
             None  # Current channel/media title from SmartThings
         )
 
-        # SmartThings Cloud API client (optional - for advanced features like input source)
+        # SmartThings Cloud API client (optional - for features like input source)
         self._smartthings_api: SmartThings | None = None
         self._smartthings_device_id: str | None = None
         self._smartthings_connection_status = (
