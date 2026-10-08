@@ -198,6 +198,47 @@ class SetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(await self.flow._validate_smartthings_tokens(self.existing))
         session.post.assert_not_called()
 
+    async def test_capacity_error_shows_contact_message(self):
+        session = MagicMock()
+        session.get.return_value = response(
+            503, {"error": "All sub-workers are at capacity"}
+        )
+        with self.mock_session(session):
+            screen = await setup.SamsungSetupFlow._get_oauth_auth_screen(self.flow)
+        self.assertIsInstance(screen, RequestUserInput)
+        message = screen.settings[0]["field"]["label"]["value"]["en"]
+        self.assertIn("slots are currently full", message)
+        self.assertIn("contact Jack Powell", message)
+        self.assertIn("/issues/new?", message)
+        self.assertEqual(screen.settings[1]["field"]["dropdown"]["value"], "continue")
+
+    async def test_other_worker_error_does_not_claim_slots_are_full(self):
+        session = MagicMock()
+        session.get.return_value = response(503, {"error": "No sub-workers configured"})
+        with self.mock_session(session):
+            screen = await setup.SamsungSetupFlow._get_oauth_auth_screen(self.flow)
+        self.assertIsInstance(screen, RequestUserInput)
+        message = screen.settings[0]["field"]["label"]["value"]["en"]
+        self.assertIn("currently unavailable", message)
+        self.assertNotIn("slots are currently full", message)
+
+    async def test_continue_without_smartthings_completes_setup(self):
+        target = tv("new")
+        self.flow._pending_device_config = target
+        self.flow._await_setup_completion = AsyncMock()
+        msg = SimpleNamespace(input_values={"smartthings_setup_action": "continue"})
+        await self.flow._handle_additional_configuration_response(msg)
+        self.config.add_or_update.assert_called_once_with(target)
+        self.assertIsNone(target.smartthings_access_token)
+        self.assertIsNone(self.flow._pending_device_config)
+        self.flow._get_oauth_auth_screen.assert_not_awaited()
+
+    async def test_retry_smartthings_returns_authorization_screen(self):
+        msg = SimpleNamespace(input_values={"smartthings_setup_action": "retry"})
+        screen = await self.flow.handle_additional_configuration_response(msg)
+        self.assertIsInstance(screen, RequestUserInput)
+        self.flow._get_oauth_auth_screen.assert_awaited_once()
+
     def mock_session(self, session):
         """Replace the HTTP session while retaining real request behavior."""
         session.__aenter__ = AsyncMock(return_value=session)
