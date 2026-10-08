@@ -230,6 +230,15 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         :return: Updated config, next screen, or None to complete
         """
         input_values = msg.input_values
+        if "smartthings_setup_action" in input_values:
+            match input_values["smartthings_setup_action"]:
+                case "continue":
+                    return None
+                case "retry":
+                    return await self._get_oauth_auth_screen()
+                case _:
+                    return SetupError(IntegrationSetupError.OTHER)
+
         # Check if we're handling OAuth token submission (second pass of the SmartThings flow)
         if "tokens_json" in input_values:
             tokens_json = input_values.get("tokens_json", "").strip()
@@ -286,7 +295,7 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
                     "label": {
                         "value": {
                             "en": (
-                                "Enable SmartThings for advanced features like input source control and power management. "
+                                "Enable SmartThings for features like input source control and power management. "
                             )
                         }
                     }
@@ -417,10 +426,23 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
                 session.get(SMARTTHINGS_WORKER_AUTHORIZE) as response,
             ):
                 if response.status != 200:
+                    # The coordinator explains capacity/configuration failures in JSON.
+                    # Log only its error field, never an authorization URL or tokens.
+                    reason = "No error details returned"
+                    try:
+                        error_data = await response.json()
+                        if isinstance(error_data, dict) and error_data.get("error"):
+                            reason = str(error_data["error"])[:300]
+                    except (aiohttp.ClientError, ValueError):
+                        reason = "Worker returned a non-JSON error response"
                     _LOG.error(
-                        "Failed to get auth URL from worker: %d", response.status
+                        "Failed to get auth URL from worker: %d (%s)",
+                        response.status,
+                        reason,
                     )
-                    return SetupError(IntegrationSetupError.OTHER)
+                    return self._get_smartthings_unavailable_screen(
+                        at_capacity=reason == "All sub-workers are at capacity"
+                    )
 
                 data = await response.json()
                 auth_url = data.get("authorizationUrl")
@@ -463,3 +485,57 @@ class SamsungSetupFlow(BaseSetupFlow[SamsungConfig]):
         except Exception as err:
             _LOG.error("Error getting OAuth authorization URL: %s", err, exc_info=True)
             return SetupError(IntegrationSetupError.OTHER)
+
+    def _get_smartthings_unavailable_screen(
+        self, *, at_capacity: bool
+    ) -> RequestUserInput:
+        """Explain why authorization is unavailable and offer setup without it."""
+        if at_capacity:
+            message = (
+                "All SmartThings authorization slots are currently full. "
+                "Please contact Jack Powell to request more slots. "
+                "[Report full SmartThings slots on GitHub]"
+                "(https://github.com/JackJPowell/uc-intg-samsungtv/issues/new?"
+                "title=SmartThings%20authorization%20slots%20full).\n\n"
+                "You can complete TV setup without SmartThings and enable it later "
+                "by running setup again once more slots are available."
+            )
+        else:
+            message = (
+                "SmartThings authorization is currently unavailable. "
+                "Please try again later or contact Jack Powell if this continues. "
+                "You can complete TV setup without SmartThings and enable it later."
+            )
+        return RequestUserInput(
+            {
+                "en": "SmartThings slots full"
+                if at_capacity
+                else "SmartThings unavailable"
+            },
+            [
+                {
+                    "id": "smartthings_unavailable_info",
+                    "label": {"en": "SmartThings authorization"},
+                    "field": {"label": {"value": {"en": message}}},
+                },
+                {
+                    "id": "smartthings_setup_action",
+                    "label": {"en": "Next step"},
+                    "field": {
+                        "dropdown": {
+                            "value": "continue",
+                            "items": [
+                                {
+                                    "id": "continue",
+                                    "label": {"en": "Continue without SmartThings"},
+                                },
+                                {
+                                    "id": "retry",
+                                    "label": {"en": "Retry SmartThings authorization"},
+                                },
+                            ],
+                        }
+                    },
+                },
+            ],
+        )
