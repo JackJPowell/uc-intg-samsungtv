@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.5.2 - 2026-10-08
+
+### Added
+
+- Added 100 more authorization slots for SmartThings users.
+
+### Changed
+
+- Updated setup flow to remove duplicate SmartThings prompts
+- Setup now explains when SmartThings authorization is unavailable or all slots are full, with options to retry or continue without SmartThings.
+
 ## v1.5.1 - 2026-09-16
 
 ### Fixed

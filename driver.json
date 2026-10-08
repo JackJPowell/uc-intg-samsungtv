@@ -1,6 +1,6 @@
 {
   "driver_id": "samsungtv_driver",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "min_core_api": "0.20.0",
   "name": { "en": "Samsung TV" },
   "icon": "uc:display",
@@ -32,12 +32,12 @@
         "field": {
           "label": {
             "value": {
-              "en": "This integration will allow you to control Samsung TVs on your network."
+              "en": "This integration will allow you to control Samsung TVs on your network. Ensure your TV is powered on."
             }
           }
         }
       }
     ]
   },
-  "release_date": "2026-09-16"
+  "release_date": "2026-10-08"
 }
