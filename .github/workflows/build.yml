@@ -35,9 +35,19 @@ jobs:
       - name: Get version and id
         #Id needed for env output variable
         id: get-version-and-id
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          # Extract version from git tag (remove 'v' prefix)
-          VERSION=${GITHUB_REF#refs/tags/v}
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            # Extract version from git tag (remove 'v' prefix).
+            VERSION=${GITHUB_REF#refs/tags/v}
+          fi
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version must be a version such as 1.5.2, without a v prefix."
+            exit 1
+          fi
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "DRIVER_ID=$(jq .driver_id -r driver.json)" >> $GITHUB_ENV
           # Save to Github output to later use it in Create Release job
@@ -109,7 +119,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/uc-intg-${{ env.INTG_NAME }}
           tags: |
-            type=ref,event=tag
+            type=raw,value=v${{ needs.build.outputs.version }}
             type=raw,value=latest
 
       - name: Build and push Docker image
